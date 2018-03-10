@@ -1,0 +1,66 @@
+name:                trackit
+version:             0.1
+synopsis:            A command-line tool for live monitoring
+description:         @trackit@ is a command-line tool that listens for changes
+                     in a user-supplied directory. Whenever there is a change,
+                     a custom command is executed and its standard output is
+                     shown live in the terminal.
+                     .
+                     = Examples
+                     .
+                     Show a live listing of the files in the current directory:
+                     .
+                     >> trackit --watch-dir=. --command="ls --color"
+                     .
+                     Show a live revision graph of a Git repository:
+                     .
+                     >> GIT_DIR=`git rev-parse --git-dir`
+                     >> trackit --watch-tree=$GIT_DIR --command="git log --graph --all --oneline --decorate --color"
+                     .
+                     For more information, see the
+                     <https://github.com/emilaxelsson/trackit/blob/master/README.md README>.
+license:             BSD3
+license-file:        LICENSE
+author:              Emil Axelsson
+maintainer:          78emil@gmail.com
+copyright:           2018 Emil Axelsson
+category:            Development
+build-type:          Simple
+cabal-version:       >=1.10
+
+extra-source-files:  README.md
+
+source-repository head
+  type:     git
+  location: https://github.com/emilaxelsson/trackit.git
+
+executable trackit
+  main-is:             Main.hs
+  other-modules:       Paths_trackit
+                       ParseANSI
+  build-depends:       base >=4.10 && <4.11,
+                       brick,
+                       fsnotify,
+                       mtl,
+                       optparse-generic,
+                       process,
+                       process-extras,
+                       stm,
+                       text,
+                       time,
+                       vty
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  default-extensions:  BangPatterns
+                       DataKinds
+                       DeriveGeneric
+                       ExplicitNamespaces
+                       FlexibleInstances
+                       MultiWayIf
+                       NoMonomorphismRestriction
+                       OverloadedStrings
+                       RecordWildCards
+                       TupleSections
+                       TypeOperators
+                       ViewPatterns
+  ghc-options:         -Wall -Wno-missing-signatures -threaded
