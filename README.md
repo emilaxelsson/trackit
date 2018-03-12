@@ -2,6 +2,8 @@
 
 `trackit` is a command-line tool that listens for changes in a user-supplied directory. Whenever there is a change, a custom command is executed and its standard output is shown live in the terminal.
 
+![](images/trackit.gif)
+
 ## Examples
 
 Show a live listing of the files in the current directory:
