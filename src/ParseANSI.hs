@@ -5,7 +5,7 @@ module ParseANSI where
 
 -- Reference: <http://ascii-table.com/ansi-escape-sequences.php>
 
-import Data.Monoid ((<>), Endo (..))
+import Data.Monoid (Endo (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -21,7 +21,6 @@ onHead _ [] = []
 onHead f (a:as) = f a : as
 
 esc = "\ESC["
-escm = "\ESC[m"
 
 -- | Parse a text that has been preceded by an 'esc' sequence
 --
@@ -79,6 +78,6 @@ parseANSI = map parseSegment . onHead fixHead . Text.splitOn esc
     fixHead :: Text -> Text
     fixHead h = case Text.breakOn esc h of
       ("", _) -> h -- Already starts with `esc`
-      (h1, _empty) -> escm <> h1
+      (h1, _empty) -> Text.cons 'm' h1
         -- No `esc` in the string (because `splitOn` makes sure that the
         -- separator is either first in the segment or absent)
