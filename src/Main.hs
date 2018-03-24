@@ -10,7 +10,6 @@ import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import Data.Version (showVersion)
-import qualified Data.Text.Lazy as LText
 import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
@@ -91,7 +90,7 @@ ansiImage :: Text -> Image
 ansiImage = foldMap mkLine . map parseANSI . Text.lines
   where
     mkLine ss =
-      foldr (<|>) mempty [text a $ LText.fromStrict s | Segment a s <- ss]
+      foldr (<|>) mempty [text' a s | Segment a s <- ss]
 
 -- | Limit the text to @n@ lines (because large buffers make the app slow)
 limit :: Int -> Text -> Text
