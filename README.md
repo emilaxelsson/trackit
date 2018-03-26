@@ -46,3 +46,15 @@ The stabilization period can be set in milliseconds using the `--stabilization` 
      ```
 
   2. `trackit` supports scrolling, and keeps the scrolled view even if the output is updated.
+
+## Tips and tricks
+
+### `git status`
+
+`git status` is slightly tricky to track using `trackit`. The reason is that the command creates a temporary lock file in the `.git` directory, resulting in a feedback loop between `trackit` and `git status` (if `trackit` listens for changes in the `.git` directory).
+
+Since version 2.16, Git supports the flag `--no-optional-locks`, which prevents commands like `git status` to create locks. So we can use the following to track the result of `git status`:
+
+    trackit -t . -c "git --no-optional-locks -c color.ui=always status"
+
+This command also forces colored output, which is useful if this option hasn't been set globally.
