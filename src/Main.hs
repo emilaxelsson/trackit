@@ -2,7 +2,7 @@ module Main where
 
 import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Concurrent.STM.TVar (TVar, newTVarIO, readTVar, writeTVar)
-import Control.Monad (fail, forever, void, when)
+import Control.Monad (fail, forever, guard, void, when)
 import Control.Monad.STM (atomically)
 import Control.Monad.Trans (liftIO)
 import Data.Char (toLower)
@@ -39,6 +39,7 @@ data CmdOptions = CmdOptions
   , _stabilization :: Maybe Int      <?> "Minimal time (milliseconds) between the any file event and command update (default: 200)"
   , _version       :: Bool           <?> "Print the version number"
   , _help          :: Bool
+  , _debug         :: Bool           <?> "Show debug information the lower right corner"
   } deriving (Show, Generic)
 
 shortName :: String -> Maybe Char
@@ -62,6 +63,7 @@ data Options = Options
   , command       :: Maybe String
   , maxLines      :: Int
   , stabilization :: NominalDiffTime
+  , debug         :: Bool
   } deriving (Show, Generic)
 
 watchDirError =
@@ -84,6 +86,7 @@ getOptions = do
               maxLines = fromMaybe 400 $ unHelpful _maxLines
               stabPerMs = fromMaybe 200 $ unHelpful _stabilization
               stabilization = fromIntegral stabPerMs / 1000
+              debug = unHelpful _debug
           return $ Options {..}
 
 ansiImage :: Text -> Image
@@ -91,6 +94,12 @@ ansiImage = foldMap mkLine . map parseANSI . Text.lines
   where
     mkLine ss =
       foldr (<|>) mempty [text' a s | Segment a s <- ss]
+
+-- | Make a 'Context'-aware 'Widget' with 'Fixed' size
+withContext :: (Context -> Widget n) -> Widget n
+withContext k = Widget Fixed Fixed $ do
+  cxt <- getContext
+  render (k cxt)
 
 -- | Limit the text to @n@ lines (because large buffers make the app slow)
 limit :: Int -> Text -> Text
@@ -132,11 +141,13 @@ keyPressed _ _ = False
 
 data AppState = AppState
   { theText :: Text
-  }
+  , updateCount :: Integer
+  } deriving (Eq, Show)
 
 initState :: AppState
 initState = AppState
   { theText = ""
+  , updateCount = 0
   }
 
 data View = TheView
@@ -145,8 +156,20 @@ data View = TheView
 theView :: ViewportScroll View
 theView = viewportScroll TheView
 
-drawApp :: AppState -> [Widget View]
-drawApp AppState {..} = pure $ viewport TheView Both $ raw $ ansiImage theText
+drawApp :: Options -> AppState -> [Widget View]
+drawApp Options {..} AppState {..} = concat
+  [ guard debug >> pure debugWidget
+  , pure $ viewport TheView Both $ raw $ ansiImage theText
+  ]
+  where
+    debugText = "Update count: " <> Text.pack (show updateCount)
+    debugAttr = defAttr `withForeColor` black `withBackColor` white
+    debugWidget =
+      withContext $ \cxt ->
+        translateBy
+          (Location
+             (availWidth cxt - Text.length debugText, availHeight cxt - 1)) $
+        raw $ text' debugAttr debugText
 
 withSize :: ((Int, Int) -> EventM View ()) -> EventM View ()
 withSize k = mapM_ k . fmap extentSize =<< lookupExtent TheView
@@ -154,7 +177,7 @@ withSize k = mapM_ k . fmap extentSize =<< lookupExtent TheView
 updateApp :: Options -> AppState -> EventM View (Next AppState)
 updateApp opts s = do
   newText <- liftIO $ runCMD opts
-  continue $ s {theText = newText}
+  continue $ s {theText = newText, updateCount = updateCount s + 1}
 
 stepApp :: Options -> AppState -> BrickEvent View () -> EventM View (Next AppState)
 stepApp _ s (keyPressed 'q' -> True)        = halt s
@@ -173,7 +196,7 @@ stepApp _ s _ = continue s
 myApp :: Options -> App AppState () View
 myApp opts =
   App
-  { appDraw = drawApp
+  { appDraw = drawApp opts
   , appHandleEvent = stepApp opts
   , appStartEvent = return
   , appAttrMap = const $ attrMap defAttr []
