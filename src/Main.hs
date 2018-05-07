@@ -36,10 +36,10 @@ data CmdOptions = CmdOptions
   , _watchTree     :: Maybe FilePath <?> "Directory tree to watch for changes in (including sub-directories). Cannot be used together with '--watch-dir'."
   , _command       :: Maybe String   <?> "Command to run"
   , _maxLines      :: Maybe Int      <?> "Maximum number of lines to show (default: 400)"
-  , _stabilization :: Maybe Int      <?> "Minimal time (milliseconds) between the any file event and command update (default: 200)"
+  , _stabilization :: Maybe Int      <?> "Minimal time (milliseconds) between any file event and the next command update (default: 200)"
   , _version       :: Bool           <?> "Print the version number"
   , _help          :: Bool
-  , _debug         :: Bool           <?> "Show debug information the lower right corner"
+  , _debug         :: Bool           <?> "Show debug information in the lower right corner"
   } deriving (Show, Generic)
 
 shortName :: String -> Maybe Char
