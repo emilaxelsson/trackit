@@ -45,6 +45,7 @@ data CmdOptions = CmdOptions
 shortName :: String -> Maybe Char
 shortName "_watchDir" = Just 'd'
 shortName "_watchTree" = Just 't'
+shortName "_debug" = Just 'g'
 shortName (_:c:_) = Just c
 shortName _ = Nothing
 
