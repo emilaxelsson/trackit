@@ -40,7 +40,7 @@ executable trackit
   main-is:             Main.hs
   other-modules:       Paths_trackit
                        ParseANSI
-  build-depends:       base >=4.10 && <4.11,
+  build-depends:       base >=4.10 && <4.13,
                        brick,
                        fsnotify,
                        mtl,
