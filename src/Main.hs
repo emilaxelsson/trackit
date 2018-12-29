@@ -266,6 +266,6 @@ main = do
 --
 -- In contrast, the approach taken here is to react to the *last* in a tight
 -- sequence of events. A tight sequence is defined as a sequence in which each
--- consecutive pair of events have a time distance of less than
--- `stabilization` seconds. And since `delayedUpdate` runs continuously, there's
--- never a risk that an event will be missed.
+-- consecutive pair of events has a time distance of less than `stabilization`
+-- seconds. And since `delayedUpdate` runs continuously, there's never a risk
+-- that an event will be missed.

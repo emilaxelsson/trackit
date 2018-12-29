@@ -11,6 +11,18 @@ import qualified Data.Text as Text
 
 import Graphics.Vty.Attributes
 
+-- | A tab character represented as a number of spaces
+tab :: Text
+tab = Text.replicate tabLength " "
+  where
+    tabLength = 8
+
+-- | Convert all tab characters to spaces
+convTabs :: Text -> Text
+convTabs = Text.concatMap $ \c -> case c of
+  '\t' -> tab
+  _ -> Text.singleton c
+
 readMay :: Read a => Text -> Maybe a
 readMay t = case reads $ Text.unpack t of
   [(a, "")] -> Just a
@@ -72,7 +84,7 @@ parseSegment s
 
 -- | Parse a text containing ANSI control codes
 parseANSI :: Text -> [Segment]
-parseANSI = map parseSegment . onHead fixHead . Text.splitOn esc
+parseANSI = map parseSegment . onHead fixHead . Text.splitOn esc . convTabs
   where
     -- Ensure that the text starts with an escape code
     fixHead :: Text -> Text
