@@ -142,6 +142,7 @@ keyPressed _ _ = False
 
 data AppState = AppState
   { commandOutput :: Text
+  , commandRunning :: Bool
   , updateCount :: Integer
   } deriving (Eq, Show)
 
@@ -150,12 +151,14 @@ data UpdateRequest = UpdateRequest
   deriving (Eq, Show)
 
 data TrackitEvent
-  = UpdateBuffer Text -- ^ The command terminated with the given output
+  = Running -- ^ The command started running
+  | UpdateBuffer Text -- ^ The command terminated with the given output
   deriving (Eq, Show)
 
 initState :: AppState
 initState = AppState
   { commandOutput = ""
+  , commandRunning = False
   , updateCount = 0
   }
 
@@ -167,18 +170,22 @@ theView = viewportScroll TheView
 
 drawApp :: Options -> AppState -> [Widget View]
 drawApp Options {..} AppState {..} = concat
-  [ guard debug >> pure debugWidget
+  [ guard commandRunning >> pure runningWidget
+  , guard debug >> pure debugWidget
   , pure $ viewport TheView Both $ raw $ ansiImage commandOutput
   ]
   where
+    attr = defAttr `withForeColor` black `withBackColor` white
+
+    runningWidget = raw $ text' attr "Command running ...  "
+
     debugText = "Update count: " <> Text.pack (show updateCount)
-    debugAttr = defAttr `withForeColor` black `withBackColor` white
     debugWidget =
       withContext $ \cxt ->
         translateBy
           (Location
              (availWidth cxt - Text.length debugText, availHeight cxt - 1)) $
-        raw $ text' debugAttr debugText
+        raw $ text' attr debugText
 
 withSize :: ((Int, Int) -> EventM View ()) -> EventM View ()
 withSize k = mapM_ k . fmap extentSize =<< lookupExtent TheView
@@ -200,8 +207,13 @@ stepApp _ s (VtyEvent (EvKey KPageDown [])) = withSize (\(_, h) -> theView `vScr
 stepApp updReq s (VtyEvent (EvKey (KChar ' ') _)) = do
   liftIO $ atomically $ writeTVar updReq (Just UpdateRequest)
   continue s
+stepApp _ s (AppEvent Running) = continue s {commandRunning = True}
 stepApp _ s (AppEvent (UpdateBuffer buff)) =
-  continue $ s {commandOutput = buff, updateCount = updateCount s + 1}
+  continue s
+    { commandOutput = buff
+    , commandRunning = False
+    , updateCount = updateCount s + 1
+    }
 stepApp _ s _ = continue s
 
 myApp :: Options -> TVar (Maybe UpdateRequest) -> App AppState TrackitEvent View
@@ -263,12 +275,17 @@ worker Options {..} lastFSEv updReq action =
 
 main = do
   opts@Options {..} <- getOptions
-  lastFSEv <- newTVarIO Nothing -- Channel holding the last file event
-  updReq   <- newTVarIO Nothing -- Channel holding user update requests
-  updEv    <- newBChan 1        -- Channel for GUI update events
+  -- Channel holding the last file event
+  lastFSEv <- newTVarIO Nothing
+  -- Channel holding user update requests (set to request an initial update)
+  updReq   <- newTVarIO (Just UpdateRequest)
+  -- Channel for GUI update events
+  updEv    <- newBChan 1
   let setFsEvent ev = atomically $ writeTVar lastFSEv $ Just ev
-      update = writeBChan updEv . UpdateBuffer =<< runCMD opts
-  update -- Force initial GUI update
+      update = do
+        writeBChan updEv Running
+        buff <- runCMD opts
+        writeBChan updEv (UpdateBuffer buff)
   tid <- forkIO $ worker opts lastFSEv updReq update
   void $ case watchDir of
     Nothing -> appMain opts updReq updEv
