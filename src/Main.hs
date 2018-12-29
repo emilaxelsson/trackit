@@ -17,7 +17,7 @@ import System.Exit (exitSuccess)
 import System.Process.ListLike (shell)
 import qualified System.Process.Text as Text
 
-import System.FSNotify (eventTime, watchTree, withManager)
+import System.FSNotify (eventTime, withManager)
 import qualified System.FSNotify as FSNotify
 
 import Options.Generic
@@ -141,13 +141,21 @@ keyPressed c (VtyEvent (EvKey (KChar c') [])) = toLower c == toLower c'
 keyPressed _ _ = False
 
 data AppState = AppState
-  { theText :: Text
+  { commandOutput :: Text
   , updateCount :: Integer
   } deriving (Eq, Show)
 
+-- | Explicit request to run the command and update output
+data UpdateRequest = UpdateRequest
+  deriving (Eq, Show)
+
+data TrackitEvent
+  = UpdateBuffer Text -- ^ The command terminated with the given output
+  deriving (Eq, Show)
+
 initState :: AppState
 initState = AppState
-  { theText = ""
+  { commandOutput = ""
   , updateCount = 0
   }
 
@@ -160,7 +168,7 @@ theView = viewportScroll TheView
 drawApp :: Options -> AppState -> [Widget View]
 drawApp Options {..} AppState {..} = concat
   [ guard debug >> pure debugWidget
-  , pure $ viewport TheView Both $ raw $ ansiImage theText
+  , pure $ viewport TheView Both $ raw $ ansiImage commandOutput
   ]
   where
     debugText = "Update count: " <> Text.pack (show updateCount)
@@ -175,12 +183,11 @@ drawApp Options {..} AppState {..} = concat
 withSize :: ((Int, Int) -> EventM View ()) -> EventM View ()
 withSize k = mapM_ k . fmap extentSize =<< lookupExtent TheView
 
-updateApp :: Options -> AppState -> EventM View (Next AppState)
-updateApp opts s = do
-  newText <- liftIO $ runCMD opts
-  continue $ s {theText = newText, updateCount = updateCount s + 1}
-
-stepApp :: Options -> AppState -> BrickEvent View () -> EventM View (Next AppState)
+stepApp ::
+     TVar (Maybe UpdateRequest)
+  -> AppState
+  -> BrickEvent View TrackitEvent
+  -> EventM View (Next AppState)
 stepApp _ s (keyPressed 'q' -> True)        = halt s
 stepApp _ s (VtyEvent (EvKey KDown []))     = theView `vScrollBy` 1 >> continue s
 stepApp _ s (VtyEvent (EvKey KUp []))       = theView `vScrollBy` (-1) >> continue s
@@ -190,50 +197,66 @@ stepApp _ s (VtyEvent (EvKey KHome _))      = vScrollToBeginning theView >> cont
 stepApp _ s (VtyEvent (EvKey KEnd _))       = vScrollToEnd theView >> continue s
 stepApp _ s (VtyEvent (EvKey KPageUp []))   = withSize (\(_, h) -> theView `vScrollBy` (negate h)) >> continue s
 stepApp _ s (VtyEvent (EvKey KPageDown [])) = withSize (\(_, h) -> theView `vScrollBy` h) >> continue s
-stepApp opts s (VtyEvent (EvKey (KChar ' ') _)) = updateApp opts s
-stepApp opts s (AppEvent ()) = updateApp opts s
+stepApp updReq s (VtyEvent (EvKey (KChar ' ') _)) = do
+  liftIO $ atomically $ writeTVar updReq (Just UpdateRequest)
+  continue s
+stepApp _ s (AppEvent (UpdateBuffer buff)) =
+  continue $ s {commandOutput = buff, updateCount = updateCount s + 1}
 stepApp _ s _ = continue s
 
-myApp :: Options -> App AppState () View
-myApp opts =
+myApp :: Options -> TVar (Maybe UpdateRequest) -> App AppState TrackitEvent View
+myApp opts updReq =
   App
   { appDraw = drawApp opts
-  , appHandleEvent = stepApp opts
+  , appHandleEvent = stepApp updReq
   , appStartEvent = return
   , appAttrMap = const $ attrMap defAttr []
   , appChooseCursor = neverShowCursor
   }
 
-appMain :: Options -> BChan () -> IO AppState
-appMain opts updEv =
-  customMain (mkVty defaultConfig) (Just updEv) (myApp opts) initState
+appMain ::
+     Options -> TVar (Maybe UpdateRequest) -> BChan TrackitEvent -> IO AppState
+appMain opts updReq updEv =
+  customMain (mkVty defaultConfig) (Just updEv) (myApp opts updReq) initState
 
--- | A loop that continuously looks for events in the 'TVar' and runs the given
--- action whenever there's an event that occurred more than
--- 'stabilization' seconds ago. Then the 'TVar' is emptied. If the event
--- occurred less time ago, it will remain in the 'TVar' and processed in a later
--- iteration (unless overwritten by another event meanwhile).
-delayedUpdate ::
+-- | A loop that continuously looks for events in the two variables and runs the
+-- given action in response. The variables are emptied whenever the action runs.
+--
+-- Events in the second variable immediately trigger the action. For events in
+-- the second variable, the action only happens if the event occurred more than
+-- 'stabilization' seconds ago. If the event occurred less time ago, it will
+-- remain in the variable and processed in a later iteration (unless emptied by
+-- another event in the meantime).
+worker ::
      Options
   -> TVar (Maybe FSNotify.Event)
        -- ^ Variable holding the last file event that has not yet been processed
+  -> TVar (Maybe UpdateRequest)
+       -- ^ Variable holding a potential update request
   -> IO () -- ^ Action to perform when the file event has stabilized
   -> IO ()
-delayedUpdate Options {..} lastFSEv action =
+worker Options {..} lastFSEv updReq action =
   forever $ do
     threadDelay loopPeriod
     t <- getCurrentTime
     act <-
       atomically $ do
-        mfsEv <- readTVar lastFSEv
-        case mfsEv of
-          Nothing -> return False
-          Just fsEv -> do
-            let stable = diffUTCTime t (eventTime fsEv) >= stabilization
-            when stable $ writeTVar lastFSEv Nothing
-            return stable
+        mupd <- readTVar updReq
+        case mupd of
+          Just UpdateRequest -> resetEvents >> return True
+          Nothing -> do
+            mfsEv <- readTVar lastFSEv
+            case mfsEv of
+              Nothing -> return False
+              Just fsEv -> do
+                let stable = diffUTCTime t (eventTime fsEv) >= stabilization
+                when stable resetEvents
+                return stable
     when act action
   where
+    resetEvents = do
+      writeTVar lastFSEv Nothing
+      writeTVar updReq Nothing
     loopPeriod = max 10000 $ round (stabilization * 1e6 / 5)
       -- Cap at 10 ms to avoid making the loop too busy when the stabilization
       -- period is small.
@@ -241,20 +264,21 @@ delayedUpdate Options {..} lastFSEv action =
 main = do
   opts@Options {..} <- getOptions
   lastFSEv <- newTVarIO Nothing -- Channel holding the last file event
-  updEv <- newBChan 1 -- Channel for GUI update events
-  let setEvent ev = atomically $ writeTVar lastFSEv $ Just ev
-      update = writeBChan updEv ()
+  updReq   <- newTVarIO Nothing -- Channel holding user update requests
+  updEv    <- newBChan 1        -- Channel for GUI update events
+  let setFsEvent ev = atomically $ writeTVar lastFSEv $ Just ev
+      update = writeBChan updEv . UpdateBuffer =<< runCMD opts
   update -- Force initial GUI update
-  case watchDir of
-    Nothing -> void $ appMain opts updEv
-    Just (path, depth) -> do
-      tid <- forkIO $ delayedUpdate opts lastFSEv update
+  tid <- forkIO $ worker opts lastFSEv updReq update
+  void $ case watchDir of
+    Nothing -> appMain opts updReq updEv
+    Just (path, depth) ->
       withManager $ \m -> do
         void $ case depth of
-          Single -> FSNotify.watchDir m path (const True) setEvent
-          Recursive -> watchTree m path (const True) setEvent
-        void $ appMain opts updEv
-      killThread tid
+          Single -> FSNotify.watchDir m path (const True) setFsEvent
+          Recursive -> FSNotify.watchTree m path (const True) setFsEvent
+        appMain opts updReq updEv
+  killThread tid
 
 -- Note: The "debouncing" option of fsnotify makes it so that only the *first*
 -- in a tight series of events is reported. However, this is problematic since
@@ -267,5 +291,5 @@ main = do
 -- In contrast, the approach taken here is to react to the *last* in a tight
 -- sequence of events. A tight sequence is defined as a sequence in which each
 -- consecutive pair of events has a time distance of less than `stabilization`
--- seconds. And since `delayedUpdate` runs continuously, there's never a risk
--- that an event will be missed.
+-- seconds. And since `worker` runs continuously, there's never a risk that an
+-- event will be missed.
