@@ -1,4 +1,4 @@
-module Main where
+module Main (main) where
 
 import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Concurrent.STM.TVar (TVar, newTVarIO, readTVar, writeTVar)
@@ -12,9 +12,11 @@ import Data.Text (Text)
 import Data.Version (showVersion)
 import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 import qualified Data.Text as Text
+import qualified Data.Text.Lazy as LText
 import GHC.Generics (Generic)
 import System.Exit (exitSuccess)
-import System.Process.ListLike (shell)
+import System.IO (BufferMode (..))
+import qualified System.Process.ListLike as Process
 import qualified System.Process.Text as Text
 
 import System.FSNotify (eventTime, withManager)
@@ -31,20 +33,29 @@ import Graphics.Vty
 import qualified Paths_trackit as Trackit
 import ParseANSI
 
+type LText = LText.Text
+
 data CmdOptions = CmdOptions
   { _watchDir      :: Maybe FilePath <?> "Directory to watch for changes in (not sub-directories). Cannot be used together with '--watch-tree'."
   , _watchTree     :: Maybe FilePath <?> "Directory tree to watch for changes in (including sub-directories). Cannot be used together with '--watch-dir'."
   , _command       :: Maybe String   <?> "Command to run"
   , _maxLines      :: Maybe Int      <?> "Maximum number of lines to show (default: 400)"
+  , _showRunning   :: Bool           <?> "Display a message while the command is running."
+  , _incremental   :: Bool           <?> "Allow output to be updated incrementally. Redraws the buffer for every output line, so should only be used for \
+                                         \slow outputs. Implies '--show-running'."
   , _stabilization :: Maybe Int      <?> "Minimal time (milliseconds) between any file event and the next command update (default: 200)"
   , _version       :: Bool           <?> "Print the version number"
   , _help          :: Bool
   , _debug         :: Bool           <?> "Show debug information in the lower right corner"
   } deriving (Show, Generic)
 
+-- `--show-running` is not on by default because it causes a quick flickering
+-- for fast commands.
+
 shortName :: String -> Maybe Char
 shortName "_watchDir" = Just 'd'
 shortName "_watchTree" = Just 't'
+shortName "_showRunning" = Just 'r'
 shortName "_debug" = Just 'g'
 shortName (_:c:_) = Just c
 shortName _ = Nothing
@@ -63,6 +74,8 @@ data Options = Options
   { watchDir      :: Maybe (FilePath, WatchDepth)
   , command       :: Maybe String
   , maxLines      :: Int
+  , showRunning   :: Bool
+  , incremental   :: Bool
   , stabilization :: NominalDiffTime
   , debug         :: Bool
   } deriving (Show, Generic)
@@ -85,6 +98,8 @@ getOptions = do
             _ -> fail watchDirError
           let command = unHelpful _command
               maxLines = fromMaybe 400 $ unHelpful _maxLines
+              showRunning = unHelpful _showRunning
+              incremental = unHelpful _incremental
               stabPerMs = fromMaybe 200 $ unHelpful _stabilization
               stabilization = fromIntegral stabPerMs / 1000
               debug = unHelpful _debug
@@ -103,12 +118,12 @@ withContext k = Widget Fixed Fixed $ do
   render (k cxt)
 
 -- | Limit the text to @n@ lines (because large buffers make the app slow)
-limit :: Int -> Text -> Text
-limit n t
-  | length ls > n = Text.unlines (take n ls ++ [pruningNotification])
-  | otherwise = t <> eof
+limit :: Int -> [Text] -> [Text]
+limit n ls = ls' ++ case rest of
+  [] -> [eof]
+  _  -> [pruningNotification]
   where
-    ls = Text.lines t
+    (ls', rest) = splitAt n ls
     eof = "\ESC[1m---------- End of output ----------\ESC[m"
     pruningNotification = Text.unwords
       [ "\ESC[1m---------- Lines beyond"
@@ -116,24 +131,43 @@ limit n t
       , "pruned ----------\ESC[m"
       ]
 
-getStdOut :: (a, stdout, b) -> stdout
-getStdOut (_, o, _) = o
-
-helpText :: Text
-helpText = Text.concat
+helpText :: [Text]
+helpText =
   [ "No command provided. Run 'trackit --help' for help.\n\n"
   , "Press 'q' to exit this window."
   ]
 
+concatChunks :: [Process.Chunk LText] -> LText
+concatChunks cs = LText.concat [c | Process.Stdout c <- cs]
+  -- I initially thought that there would be one chunk per line given the
+  -- `LineBuffering` setting, but this doesn't seem to be the case. Hence
+  -- `Text.lines` is needed on the result.
+  --
+  -- There is an instance of `readCreateProcessLazy` that can return
+  -- `(ExitCode, LText, LText)` directly without any chunks. However, that
+  -- instance doesn't seem to have the desired laziness.
+
 -- | Run the command provided by the user, or print a helpful text if no command
 -- was given
-runCMD :: Options -> IO Text
-runCMD Options {..} =
-  case command of
-    Nothing -> return helpText
-    Just cmd ->
-      limit maxLines . getStdOut <$>
-      Text.readCreateProcessWithExitCode (shell cmd) ""
+runCMD :: Options -> IO [Text]
+runCMD Options {..} = case command of
+  Nothing -> return helpText
+  Just cmd -> do
+    (_, o, _) <- Text.readCreateProcessWithExitCode (Process.shell cmd) ""
+    return $ Text.lines o
+
+-- | Run the command provided by the user, or print a helpful text if no command
+-- was given
+--
+-- The output is returned as a lazy list of lines.
+runLazyCMD :: Options -> IO [Text]
+runLazyCMD Options {..} = case command of
+  Nothing -> return helpText
+  Just cmd ->
+    limit maxLines . map LText.toStrict . LText.lines . concatChunks <$>
+    Process.readCreateProcessLazy
+      (Process.shell cmd, LineBuffering, LineBuffering)
+      ""
 
 -- | Case-insensitive key-press recognizer
 keyPressed :: Char -> BrickEvent n e -> Bool
@@ -141,7 +175,7 @@ keyPressed c (VtyEvent (EvKey (KChar c') [])) = toLower c == toLower c'
 keyPressed _ _ = False
 
 data AppState = AppState
-  { commandOutput :: Text
+  { commandOutput :: [Text] -- ^ Lines in reverse
   , commandRunning :: Bool
   , updateCount :: Integer
   } deriving (Eq, Show)
@@ -151,13 +185,15 @@ data UpdateRequest = UpdateRequest
   deriving (Eq, Show)
 
 data TrackitEvent
-  = Running -- ^ The command started running
-  | UpdateBuffer Text -- ^ The command terminated with the given output
+  = Running             -- ^ An incremental command started running
+  | Done                -- ^ An incremental command is done
+  | AddLine Text        -- ^ An incremental command produced a line
+  | UpdateBuffer [Text] -- ^ A non-incremental command finished with the given output
   deriving (Eq, Show)
 
 initState :: AppState
 initState = AppState
-  { commandOutput = ""
+  { commandOutput = []
   , commandRunning = False
   , updateCount = 0
   }
@@ -170,13 +206,16 @@ theView = viewportScroll TheView
 
 drawApp :: Options -> AppState -> [Widget View]
 drawApp Options {..} AppState {..} = concat
-  [ guard commandRunning >> pure runningWidget
+  [ guard showCommandRunning >> pure runningWidget
   , guard debug >> pure debugWidget
-  , pure $ viewport TheView Both $ raw $ ansiImage commandOutput
+  , pure $
+    viewport TheView Both $
+    raw $ ansiImage $ Text.unlines $ reverse commandOutput
   ]
   where
     attr = defAttr `withForeColor` black `withBackColor` white
 
+    showCommandRunning = commandRunning && (showRunning || incremental)
     runningWidget = raw $ text' attr "Command running ...  "
 
     debugText = "Update count: " <> Text.pack (show updateCount)
@@ -207,10 +246,23 @@ stepApp _ s (VtyEvent (EvKey KPageDown [])) = withSize (\(_, h) -> theView `vScr
 stepApp updReq s (VtyEvent (EvKey (KChar ' ') _)) = do
   liftIO $ atomically $ writeTVar updReq (Just UpdateRequest)
   continue s
-stepApp _ s (AppEvent Running) = continue s {commandRunning = True}
-stepApp _ s (AppEvent (UpdateBuffer buff)) =
+stepApp _ s (AppEvent Running) =
   continue s
-    { commandOutput = buff
+    { commandOutput = []
+    , commandRunning = True
+    }
+stepApp _ s (AppEvent Done) =
+  continue s
+    { commandRunning = False
+    , updateCount = updateCount s + 1
+    }
+stepApp _ s (AppEvent (AddLine line)) =
+  continue s
+    { commandOutput = line : commandOutput s
+    }
+stepApp _ s (AppEvent (UpdateBuffer buf)) =
+  continue s
+    { commandOutput = buf
     , commandRunning = False
     , updateCount = updateCount s + 1
     }
@@ -273,6 +325,19 @@ worker Options {..} lastFSEv updReq action =
       -- Cap at 10 ms to avoid making the loop too busy when the stabilization
       -- period is small.
 
+-- | Run the command and feed the output lines to the GUI
+updater :: Options -> BChan TrackitEvent -> IO ()
+updater opts@Options {..} updEv
+  | incremental = do
+      writeBChan updEv Running
+      ls <- runLazyCMD opts
+      mapM_ (writeBChan updEv . AddLine) ls
+      writeBChan updEv Done
+  | otherwise = do
+      when showRunning $ writeBChan updEv Running
+      ls <- runCMD opts
+      writeBChan updEv $ UpdateBuffer ls
+
 main = do
   opts@Options {..} <- getOptions
   -- Channel holding the last file event
@@ -282,11 +347,7 @@ main = do
   -- Channel for GUI update events
   updEv    <- newBChan 1
   let setFsEvent ev = atomically $ writeTVar lastFSEv $ Just ev
-      update = do
-        writeBChan updEv Running
-        buff <- runCMD opts
-        writeBChan updEv (UpdateBuffer buff)
-  tid <- forkIO $ worker opts lastFSEv updReq update
+  tid <- forkIO $ worker opts lastFSEv updReq (updater opts updEv)
   void $ case watchDir of
     Nothing -> appMain opts updReq updEv
     Just (path, depth) ->
