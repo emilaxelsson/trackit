@@ -40,6 +40,7 @@ data CmdOptions = CmdOptions
   , _watchTree     :: Maybe FilePath <?> "Directory tree to watch for changes in (including sub-directories). Cannot be used together with '--watch-dir'."
   , _command       :: Maybe String   <?> "Command to run"
   , _maxLines      :: Maybe Int      <?> "Maximum number of lines to show (default: 400)"
+  , _followTail    :: Bool           <?> "Follow the tail of the generated output."
   , _showRunning   :: Bool           <?> "Display a message while the command is running."
   , _incremental   :: Bool           <?> "Allow output to be updated incrementally. Redraws the buffer for every output line, so should only be used for \
                                          \slow outputs. Implies '--show-running'."
@@ -74,6 +75,7 @@ data Options = Options
   { watchDir      :: Maybe (FilePath, WatchDepth)
   , command       :: Maybe String
   , maxLines      :: Int
+  , followTail    :: Bool
   , showRunning   :: Bool
   , incremental   :: Bool
   , stabilization :: NominalDiffTime
@@ -96,13 +98,14 @@ getOptions = do
             (Just d, Nothing) -> return $ Just (d, Single)
             (Nothing, Just t) -> return $ Just (t, Recursive)
             _ -> fail watchDirError
-          let command = unHelpful _command
-              maxLines = fromMaybe 400 $ unHelpful _maxLines
-              showRunning = unHelpful _showRunning
-              incremental = unHelpful _incremental
-              stabPerMs = fromMaybe 200 $ unHelpful _stabilization
+          let command       = unHelpful _command
+              maxLines      = fromMaybe 400 $ unHelpful _maxLines
+              followTail    = unHelpful _followTail
+              showRunning   = unHelpful _showRunning
+              incremental   = unHelpful _incremental
+              stabPerMs     = fromMaybe 200 $ unHelpful _stabilization
               stabilization = fromIntegral stabPerMs / 1000
-              debug = unHelpful _debug
+              debug         = unHelpful _debug
           return $ Options {..}
 
 ansiImage :: Text -> Image
@@ -117,19 +120,35 @@ withContext k = Widget Fixed Fixed $ do
   cxt <- getContext
   render (k cxt)
 
+-- | Create a bold line looking like this:
+--
+-- > ---------------- <info> ----------------
+infoLine :: Text -> Text
+infoLine info = Text.concat
+  [ "\ESC[1m"
+  , line1
+  , " "
+  , info
+  , " "
+  , line2
+  , "\ESC[m"
+  ]
+  where
+    l = 38 - Text.length info
+    line1 = Text.replicate (l     `div` 2) "-"
+    line2 = Text.replicate ((l+1) `div` 2) "-"
+
+
 -- | Limit the text to @n@ lines (because large buffers make the app slow)
 limit :: Int -> [Text] -> [Text]
 limit n ls = ls' ++ case rest of
   [] -> [eof]
-  _  -> [pruningNotification]
+  _ -> [pruningNotification]
   where
     (ls', rest) = splitAt n ls
-    eof = "\ESC[1m---------- End of output ----------\ESC[m"
-    pruningNotification = Text.unwords
-      [ "\ESC[1m---------- Lines beyond"
-      , Text.pack (show n)
-      , "pruned ----------\ESC[m"
-      ]
+    eof = infoLine "End of output"
+    pruningNotification =
+      infoLine $ Text.unwords ["Lines beyond", Text.pack (show n), "pruned"]
 
 helpText :: [Text]
 helpText =
@@ -206,17 +225,15 @@ theView = viewportScroll TheView
 
 drawApp :: Options -> AppState -> [Widget View]
 drawApp Options {..} AppState {..} = concat
-  [ guard showCommandRunning >> pure runningWidget
-  , guard debug >> pure debugWidget
+  [ guard debug >> pure debugWidget
   , pure $
     viewport TheView Both $
-    raw $ ansiImage $ Text.unlines $ reverse commandOutput
+    raw $ ansiImage $ Text.unlines $ reverse (runningInfo ++ commandOutput)
   ]
   where
     attr = defAttr `withForeColor` black `withBackColor` white
 
-    showCommandRunning = commandRunning && (showRunning || incremental)
-    runningWidget = raw $ text' attr "Command running ...  "
+    runningInfo = if commandRunning then [infoLine "Command is running"] else []
 
     debugText = "Update count: " <> Text.pack (show updateCount)
     debugWidget =
@@ -230,49 +247,53 @@ withSize :: ((Int, Int) -> EventM View ()) -> EventM View ()
 withSize k = mapM_ k . fmap extentSize =<< lookupExtent TheView
 
 stepApp ::
-     TVar (Maybe UpdateRequest)
+     Options
+  -> TVar (Maybe UpdateRequest)
   -> AppState
   -> BrickEvent View TrackitEvent
   -> EventM View (Next AppState)
-stepApp _ s (keyPressed 'q' -> True)        = halt s
-stepApp _ s (VtyEvent (EvKey KDown []))     = theView `vScrollBy` 1 >> continue s
-stepApp _ s (VtyEvent (EvKey KUp []))       = theView `vScrollBy` (-1) >> continue s
-stepApp _ s (VtyEvent (EvKey KLeft []))     = withSize (\(w, _) -> theView `hScrollBy` (negate $ div w 2)) >> continue s
-stepApp _ s (VtyEvent (EvKey KRight []))    = withSize (\(w, _) -> theView `hScrollBy` (div w 2)) >> continue s
-stepApp _ s (VtyEvent (EvKey KHome _))      = vScrollToBeginning theView >> continue s
-stepApp _ s (VtyEvent (EvKey KEnd _))       = vScrollToEnd theView >> continue s
-stepApp _ s (VtyEvent (EvKey KPageUp []))   = withSize (\(_, h) -> theView `vScrollBy` (negate h)) >> continue s
-stepApp _ s (VtyEvent (EvKey KPageDown [])) = withSize (\(_, h) -> theView `vScrollBy` h) >> continue s
-stepApp updReq s (VtyEvent (EvKey (KChar ' ') _)) = do
+stepApp _ _ s (keyPressed 'q' -> True)        = halt s
+stepApp _ _ s (VtyEvent (EvKey KDown []))     = theView `vScrollBy` 1 >> continue s
+stepApp _ _ s (VtyEvent (EvKey KUp []))       = theView `vScrollBy` (-1) >> continue s
+stepApp _ _ s (VtyEvent (EvKey KLeft []))     = withSize (\(w, _) -> theView `hScrollBy` (negate $ div w 2)) >> continue s
+stepApp _ _ s (VtyEvent (EvKey KRight []))    = withSize (\(w, _) -> theView `hScrollBy` (div w 2)) >> continue s
+stepApp _ _ s (VtyEvent (EvKey KHome _))      = vScrollToBeginning theView >> continue s
+stepApp _ _ s (VtyEvent (EvKey KEnd _))       = vScrollToEnd theView >> continue s
+stepApp _ _ s (VtyEvent (EvKey KPageUp []))   = withSize (\(_, h) -> theView `vScrollBy` (negate h)) >> continue s
+stepApp _ _ s (VtyEvent (EvKey KPageDown [])) = withSize (\(_, h) -> theView `vScrollBy` h) >> continue s
+stepApp _ updReq s (VtyEvent (EvKey (KChar ' ') _)) = do
   liftIO $ atomically $ writeTVar updReq (Just UpdateRequest)
   continue s
-stepApp _ s (AppEvent Running) =
+stepApp _ _ s (AppEvent Running) =
   continue s
     { commandOutput = []
     , commandRunning = True
     }
-stepApp _ s (AppEvent Done) =
+stepApp opts _ s (AppEvent Done) = do
+  when (followTail opts) $ vScrollToEnd theView
   continue s
     { commandRunning = False
     , updateCount = updateCount s + 1
     }
-stepApp _ s (AppEvent (AddLine line)) =
+stepApp opts _ s (AppEvent (AddLine line)) = do
+  when (followTail opts) $ vScrollToEnd theView
   continue s
     { commandOutput = line : commandOutput s
     }
-stepApp _ s (AppEvent (UpdateBuffer buf)) =
+stepApp opts _ s (AppEvent (UpdateBuffer buf)) = do
+  when (followTail opts) $ vScrollToEnd theView
   continue s
     { commandOutput = buf
     , commandRunning = False
     , updateCount = updateCount s + 1
     }
-stepApp _ s _ = continue s
+stepApp _ _ s _ = continue s
 
 myApp :: Options -> TVar (Maybe UpdateRequest) -> App AppState TrackitEvent View
 myApp opts updReq =
   App
   { appDraw = drawApp opts
-  , appHandleEvent = stepApp updReq
+  , appHandleEvent = stepApp opts updReq
   , appStartEvent = return
   , appAttrMap = const $ attrMap defAttr []
   , appChooseCursor = neverShowCursor
