@@ -35,6 +35,16 @@ When multiple changes occur in a short time in the watched directory (e.g. when 
 
 The stabilization period can be set in milliseconds using the `--stabilization` flag. A lower value gives quicker response times, but increases the risk of getting spurious updates when a tight sequence changes occurs in the watched directory. The default stabilization period is 200 ms.
 
+### Incremental output
+
+The flag `--incremental` can be used to see partial output from slow commands. It will show the output line by line. Note, however, that each new line causes the display to be redrawn. This can lead to unnecessary flickering for fast outputs.
+
+Here is an example demonstrating the incremental feature:
+
+    trackit -i -c 'echo 1 && sleep 0.2 && echo 2 && sleep 0.2 && echo 3 && sleep 0.2 && echo 4 && sleep 0.2 && echo 5 && sleep 0.2 && echo 6 && sleep 0.2 && echo 7 && sleep 0.2 && echo 8 && sleep 0.2 && echo 9 && sleep 0.2 && echo 10 && sleep 0.2 && echo 11 && sleep 0.2 && echo 12 && sleep 0.2 && echo 13 && sleep 0.2 && echo 14 && sleep 0.2 && echo 15'
+
+If the output exceeds the height of the terminal, you might want to use the flag `--follow-tail` to automatically scroll to the end as new lines are generated.
+
 ## Comparison to `watch`
 
 `trackit` offers two main advantages over the similar tool [watch](https://linux.die.net/man/1/watch):
