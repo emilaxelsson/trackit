@@ -1,5 +1,5 @@
 name:                trackit
-version:             0.4
+version:             0.5
 synopsis:            A command-line tool for live monitoring
 description:         @trackit@ is a command-line tool that listens for changes
                      in a user-supplied directory. Whenever there is a change,
