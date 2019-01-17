@@ -49,6 +49,14 @@ The stabilization period can be set in milliseconds using the `--stabilization` 
 
 ## Tips and tricks
 
+### Merging `stdout` and `stderr`
+
+`trackit` only listens to `stdout` from the given command. This means that anything written to `stderr` will be ignored. In order to make sure that `stderr` is also captured, the two streams can be interleaved. This can be done by appending `2>&1` to the command (tested on Linux).
+
+For example, the following will show an error message when run outside a Git repository:
+
+    > trackit -c "git status 2>&1"
+
 ### `git status`
 
 `git status` is slightly tricky to track using `trackit`. The reason is that the command creates a temporary lock file in the `.git` directory, resulting in a feedback loop between `trackit` and `git status` (if `trackit` listens for changes in the `.git` directory).
