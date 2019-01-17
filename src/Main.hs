@@ -336,7 +336,7 @@ updater opts@Options {..} updEv
   | otherwise = do
       when showRunning $ writeBChan updEv Running
       ls <- runCMD opts
-      writeBChan updEv $ UpdateBuffer ls
+      writeBChan updEv $ UpdateBuffer $ reverse ls
 
 main = do
   opts@Options {..} <- getOptions
