@@ -154,7 +154,7 @@ runCMD Options {..} = case command of
   Nothing -> return helpText
   Just cmd -> do
     (_, o, _) <- Text.readCreateProcessWithExitCode (Process.shell cmd) ""
-    return $ Text.lines o
+    return $ limit maxLines $ Text.lines o
 
 -- | Run the command provided by the user, or print a helpful text if no command
 -- was given
