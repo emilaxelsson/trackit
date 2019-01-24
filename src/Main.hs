@@ -252,15 +252,23 @@ stepApp ::
   -> AppState
   -> BrickEvent View TrackitEvent
   -> EventM View (Next AppState)
-stepApp _ _ s (keyPressed 'q' -> True)        = halt s
-stepApp _ _ s (VtyEvent (EvKey KDown []))     = theView `vScrollBy` 1 >> continue s
-stepApp _ _ s (VtyEvent (EvKey KUp []))       = theView `vScrollBy` (-1) >> continue s
-stepApp _ _ s (VtyEvent (EvKey KLeft []))     = withSize (\(w, _) -> theView `hScrollBy` (negate $ div w 2)) >> continue s
-stepApp _ _ s (VtyEvent (EvKey KRight []))    = withSize (\(w, _) -> theView `hScrollBy` (div w 2)) >> continue s
-stepApp _ _ s (VtyEvent (EvKey KHome _))      = vScrollToBeginning theView >> continue s
-stepApp _ _ s (VtyEvent (EvKey KEnd _))       = vScrollToEnd theView >> continue s
-stepApp _ _ s (VtyEvent (EvKey KPageUp []))   = withSize (\(_, h) -> theView `vScrollBy` (negate h)) >> continue s
-stepApp _ _ s (VtyEvent (EvKey KPageDown [])) = withSize (\(_, h) -> theView `vScrollBy` h) >> continue s
+stepApp _ _ s (keyPressed 'q' -> True)          = halt s
+stepApp _ _ s (VtyEvent (EvKey KDown []))       = theView `vScrollBy` 1 >> continue s
+stepApp _ _ s (VtyEvent (EvKey (KChar 'j') [])) = theView `vScrollBy` 1 >> continue s
+stepApp _ _ s (VtyEvent (EvKey (KChar 'd') [MCtrl])) = theView `vScrollBy` 25 >> continue s
+stepApp _ _ s (VtyEvent (EvKey KUp []))         = theView `vScrollBy` (-1) >> continue s
+stepApp _ _ s (VtyEvent (EvKey (KChar 'k') [])) = theView `vScrollBy` (-1) >> continue s
+stepApp _ _ s (VtyEvent (EvKey (KChar 'u') [MCtrl])) = theView `vScrollBy` (-25) >> continue s
+stepApp _ _ s (VtyEvent (EvKey KLeft []))       = withSize (\(w, _) -> theView `hScrollBy` (negate $ div w 2)) >> continue s
+stepApp _ _ s (VtyEvent (EvKey (KChar 'h') [])) = withSize (\(w, _) -> theView `hScrollBy` (negate $ div w 2)) >> continue s
+stepApp _ _ s (VtyEvent (EvKey KRight []))      = withSize (\(w, _) -> theView `hScrollBy` (div w 2)) >> continue s
+stepApp _ _ s (VtyEvent (EvKey (KChar 'l') [])) = withSize (\(w, _) -> theView `hScrollBy` (div w 2)) >> continue s
+stepApp _ _ s (VtyEvent (EvKey KHome _))        = vScrollToBeginning theView >> continue s
+stepApp _ _ s (VtyEvent (EvKey (KChar 'g') _))  = vScrollToBeginning theView >> continue s
+stepApp _ _ s (VtyEvent (EvKey KEnd _))         = vScrollToEnd theView >> continue s
+stepApp _ _ s (VtyEvent (EvKey (KChar 'G') _))  = vScrollToEnd theView >> continue s
+stepApp _ _ s (VtyEvent (EvKey KPageUp []))     = withSize (\(_, h) -> theView `vScrollBy` (negate h)) >> continue s
+stepApp _ _ s (VtyEvent (EvKey KPageDown []))   = withSize (\(_, h) -> theView `vScrollBy` h) >> continue s
 stepApp _ updReq s (VtyEvent (EvKey (KChar ' ') _)) = do
   liftIO $ atomically $ writeTVar updReq (Just UpdateRequest)
   continue s
