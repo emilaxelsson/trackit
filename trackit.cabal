@@ -23,7 +23,7 @@ license:             BSD3
 license-file:        LICENSE
 author:              Emil Axelsson
 maintainer:          78emil@gmail.com
-copyright:           2018 Emil Axelsson
+copyright:           2018-2019 Emil Axelsson
 homepage:            https://github.com/emilaxelsson/trackit
 bug-reports:         https://github.com/emilaxelsson/trackit/issues
 category:            Development

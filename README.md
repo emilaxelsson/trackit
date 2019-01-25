@@ -63,7 +63,7 @@ If the output exceeds the height of the terminal, you might want to use the flag
 
 `trackit` only listens to `stdout` from the given command. This means that anything written to `stderr` will be ignored. In order to make sure that `stderr` is also captured, the two streams can be interleaved. This can be done by appending `2>&1` to the command (tested on Linux).
 
-For example, the following will show an error message when run outside a Git repository:
+For example, the following will show an error message when run outside of a Git repository:
 
     > trackit -c "git status 2>&1"
 
