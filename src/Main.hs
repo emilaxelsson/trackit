@@ -252,18 +252,24 @@ stepApp ::
   -> AppState
   -> BrickEvent View TrackitEvent
   -> EventM View (Next AppState)
-stepApp _ _ s (keyPressed 'q' -> True)        = halt s
-stepApp _ _ s (VtyEvent (EvKey KDown []))     = theView `vScrollBy` 1 >> continue s
-stepApp _ _ s (VtyEvent (EvKey KUp []))       = theView `vScrollBy` (-1) >> continue s
-stepApp _ _ s (VtyEvent (EvKey KLeft []))     = withSize (\(w, _) -> theView `hScrollBy` (negate $ div w 2)) >> continue s
-stepApp _ _ s (VtyEvent (EvKey KRight []))    = withSize (\(w, _) -> theView `hScrollBy` (div w 2)) >> continue s
-stepApp _ _ s (VtyEvent (EvKey KHome _))      = vScrollToBeginning theView >> continue s
-stepApp _ _ s (VtyEvent (EvKey KEnd _))       = vScrollToEnd theView >> continue s
-stepApp _ _ s (VtyEvent (EvKey KPageUp []))   = withSize (\(_, h) -> theView `vScrollBy` (negate h)) >> continue s
-stepApp _ _ s (VtyEvent (EvKey KPageDown [])) = withSize (\(_, h) -> theView `vScrollBy` h) >> continue s
+stepApp _ _ s (keyPressed 'q' -> True)          = halt s
 stepApp _ updReq s (VtyEvent (EvKey (KChar ' ') _)) = do
   liftIO $ atomically $ writeTVar updReq (Just UpdateRequest)
   continue s
+stepApp _ _ s (VtyEvent (EvKey kc []))
+  | kc `elem` [KDown,  KChar 'j'] = theView `vScrollBy` 1 >> continue s
+  | kc `elem` [KUp,    KChar 'k'] = theView `vScrollBy` (-1) >> continue s
+  | kc `elem` [KLeft,  KChar 'h'] = withSize (\(w, _) -> theView `hScrollBy` (negate $ div w 2)) >> continue s
+  | kc `elem` [KRight, KChar 'l'] = withSize (\(w, _) -> theView `hScrollBy` (div w 2)) >> continue s
+  | kc `elem` [KHome,  KChar 'g'] = vScrollToBeginning theView >> continue s
+  | kc `elem` [KEnd,   KChar 'G'] = vScrollToEnd theView >> continue s
+  | kc == KPageUp                 = withSize (\(_, h) -> theView `vScrollBy` (negate h)) >> continue s
+  | kc == KPageDown               = withSize (\(_, h) -> theView `vScrollBy` h) >> continue s
+  | otherwise                     = continue s
+stepApp _ _ s (VtyEvent (EvKey kc [MCtrl]))
+  | kc == KChar 'u'               = theView `vScrollBy` (-25) >> continue s
+  | kc == KChar 'd'               = theView `vScrollBy` (25) >> continue s
+  | otherwise                     = continue s
 stepApp _ _ s (AppEvent Running) =
   continue s
     { commandOutput = []

@@ -28,7 +28,7 @@ Run `trackit -h` to get more information about available flags.
 `trackit` starts a new buffer in the terminal and uses it to display the output of the command given as the `--command` flag. The display reacts to the following keyboard events:
 
   * **q** - Quit `trackit`.
-  * **arrow keys** - Scroll the output buffer (also with PgUp/PgDown/Home/End).
+  * **arrows/vi keys** - Scroll the output buffer (also with PgUp/PgDown/Home/End). The available vi-style bindings are h/j/k/l/C-u/C-d.
   * **space key** - Re-run the command and update the buffer. This is useful if no watch directory is provided, or if the output is affected by events outside of the watch directory.
 
 When multiple changes occur in a short time in the watched directory (e.g. when switching branches in a repository), it may not be desired to have `trackit` react to every single change. This is especially the case if the monitored command is expensive (e.g. `git log` in a large repository). For this reason, `trackit` requires a *stabilization period* before running an update. If an event occurs during that period, the period clock is restarted and the update is delayed further.
