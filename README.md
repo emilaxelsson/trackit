@@ -76,3 +76,11 @@ Since version 2.16, Git supports the flag `--no-optional-locks`, which prevents 
     trackit -t . -c "git --no-optional-locks -c color.ui=always status"
 
 This command also forces colored output, which is useful if this option hasn't been set globally.
+
+### `dhall`
+
+It is possible to achieve [`ghcid`](https://github.com/ndmitchell/ghcid)-like
+behavior for [`dhall`](https://github.com/dhall-lang/dhall-lang) files using
+`trackit`:
+
+    trackit -c "cat ./file.dhall | dhall 2>&1 " -d . -f
