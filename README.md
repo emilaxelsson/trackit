@@ -19,7 +19,7 @@ Show a live revision graph of a Git repository:
 
 `trackit` can be installed from [Hackage](https://hackage.haskell.org/package/trackit) using Cabal:
 
-    > cabal install trackit
+    > cabal new-install trackit
 
 ## Usage
 
@@ -77,7 +77,22 @@ Since version 2.16, Git supports the flag `--no-optional-locks`, which prevents 
 
 This command also forces colored output, which is useful if this option hasn't been set globally.
 
-### `dhall`
+### Haskell compilation
+
+It is possible to use `trackit` to check Haskell code upon changes (emulating [`ghcid`](https://github.com/ndmitchell/ghcid)).
+
+Using GHC directly:
+
+    trackit -i -f -t . -c "ghc --make -O0 -fno-code -fdiagnostics-color=always file.hs 2>&1"
+
+  * `-O0 -fno-code` are used to speed up compilation, assuming one is only interested in finding errors.
+  * Consider also using [`cabal-cargs`](http://hackage.haskell.org/package/cabal-cargs) to pick up flags from the Cabal file and pass them to GHC.
+
+Using Cabal:
+
+    trackit -i -f -t . -c 'cabal new-build --ghc-options="-fdiagnostics-color=always" 2>&1'
+
+### Dhall
 
 It is possible to achieve [`ghcid`](https://github.com/ndmitchell/ghcid)-like
 behavior for [`dhall`](https://github.com/dhall-lang/dhall-lang) files using
