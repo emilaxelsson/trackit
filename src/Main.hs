@@ -307,8 +307,14 @@ myApp opts updReq =
 
 appMain ::
      Options -> TVar (Maybe UpdateRequest) -> BChan TrackitEvent -> IO AppState
-appMain opts updReq updEv =
-  customMain (mkVty defaultConfig) (Just updEv) (myApp opts updReq) initState
+appMain opts updReq updEv = do
+  vty <- mkVty defaultConfig
+  customMain
+    vty
+    (mkVty defaultConfig)
+    (Just updEv)
+    (myApp opts updReq)
+    initState
 
 -- | A loop that continuously looks for events in the two variables and runs the
 -- given action in response. The variables are emptied whenever the action runs.
