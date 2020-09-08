@@ -39,7 +39,6 @@ data CmdOptions = CmdOptions
   { _watchDir      :: Maybe FilePath <?> "Directory to watch for changes in (not sub-directories). Cannot be used together with '--watch-tree'."
   , _watchTree     :: Maybe FilePath <?> "Directory tree to watch for changes in (including sub-directories). Cannot be used together with '--watch-dir'."
   , _command       :: Maybe String   <?> "Command to run"
-  , _maxLines      :: Maybe Int      <?> "Maximum number of lines to show (default: 400)"
   , _followTail    :: Bool           <?> "Follow the tail of the generated output."
   , _showRunning   :: Bool           <?> "Display a message while the command is running."
   , _incremental   :: Bool           <?> "Allow output to be updated incrementally. Redraws the buffer for every output line, so should only be used for \
@@ -74,7 +73,6 @@ data WatchDepth
 data Options = Options
   { watchDir      :: Maybe (FilePath, WatchDepth)
   , command       :: Maybe String
-  , maxLines      :: Int
   , followTail    :: Bool
   , showRunning   :: Bool
   , incremental   :: Bool
@@ -99,7 +97,6 @@ getOptions = do
             (Nothing, Just t) -> return $ Just (t, Recursive)
             _ -> fail watchDirError
           let command       = unHelpful _command
-              maxLines      = fromMaybe 400 $ unHelpful _maxLines
               followTail    = unHelpful _followTail
               showRunning   = unHelpful _showRunning
               incremental   = unHelpful _incremental
@@ -108,47 +105,29 @@ getOptions = do
               debug         = unHelpful _debug
           return $ Options {..}
 
-ansiImage :: Text -> Image
-ansiImage = foldMap mkLine . map parseANSI . Text.lines
-  where
-    mkLine ss =
-      foldr (<|>) mempty [text' a s | Segment a s <- ss]
-
--- | Make a 'Context'-aware 'Widget' with 'Fixed' size
-withContext :: (Context -> Widget n) -> Widget n
-withContext k = Widget Fixed Fixed $ do
-  cxt <- getContext
-  render (k cxt)
-
--- | Create a bold line looking like this:
+-- | Create an 'Image' from a list of lines (ANSI codes supported)
 --
--- > ---------------- <info> ----------------
-infoLine :: Text -> Text
-infoLine info = Text.concat
-  [ "\ESC[1m"
-  , line1
-  , " "
-  , info
-  , " "
-  , line2
-  , "\ESC[m"
-  ]
+-- Given the first two arguments `x` and `w`, `x` characters are be dropped at
+-- the beginning of each line. After offsetting, each line is cropped to `w`
+-- characters.
+ansiImage ::
+     Int -- ^ X offset
+  -> Int -- ^ Available width
+  -> [Text] -- ^ Lines
+  -> Image
+ansiImage w x = foldMap (mkLine . takeSegs w . dropSegs x . parseANSI)
   where
-    l = 38 - Text.length info
-    line1 = Text.replicate (l     `div` 2) "-"
-    line2 = Text.replicate ((l+1) `div` 2) "-"
-
-
--- | Limit the text to @n@ lines (because large buffers make the app slow)
-limit :: Int -> [Text] -> [Text]
-limit n ls = ls' ++ case rest of
-  [] -> [eof]
-  _ -> [pruningNotification]
-  where
-    (ls', rest) = splitAt n ls
-    eof = infoLine "End of output"
-    pruningNotification =
-      infoLine $ Text.unwords ["Lines beyond", Text.pack (show n), "pruned"]
+    mkLine ss
+      | imageWidth line == 0 = text' defAttr " "
+          -- Apparently, each line must have at least one character, otherwise
+          -- it doesn't take up any vertical space.
+      | otherwise = line
+      where
+        line = foldr (<|>) mempty [text' a s | Segment a s <- ss]
+  -- Note that horizontal panning of lines cannot be done outside of this
+  -- function. If the lines contain ANSI codes, plain dropping and taking of
+  -- characters in the 'Text' representation may lead to strange results. So
+  -- panning can only be done after ANSI parsing.
 
 helpText :: [Text]
 helpText =
@@ -173,7 +152,7 @@ runCMD Options {..} = case command of
   Nothing -> return helpText
   Just cmd -> do
     (_, o, _) <- Text.readCreateProcessWithExitCode (Process.shell cmd) ""
-    return $ limit maxLines $ Text.lines o
+    return $ Text.lines o
 
 -- | Run the command provided by the user, or print a helpful text if no command
 -- was given
@@ -183,7 +162,7 @@ runLazyCMD :: Options -> IO [Text]
 runLazyCMD Options {..} = case command of
   Nothing -> return helpText
   Just cmd ->
-    limit maxLines . map LText.toStrict . LText.lines . concatChunks <$>
+    map LText.toStrict . LText.lines . concatChunks <$>
     Process.readCreateProcessLazy
       (Process.shell cmd, LineBuffering, LineBuffering)
       ""
@@ -196,8 +175,31 @@ keyPressed _ _ = False
 data AppState = AppState
   { commandOutput :: [Text] -- ^ Lines in reverse
   , commandRunning :: Bool
+  , bufferWidth  :: Int -- ^ Width of the widest line in the buffer
+  , bufferHeight :: Int -- ^ Height of buffer
+  , xOffset :: Int
+  , yOffset :: Int
   , updateCount :: Integer
   } deriving (Eq, Show)
+
+-- | Ensure that the offsets are within the available area
+clampState ::
+     (Int, Int) -- ^ Available width, height
+  -> AppState
+  -> AppState
+clampState (w, h) s@AppState {..}
+  | validOffset = s -- avoid allocation when nothing needs to change
+  | otherwise = s
+      { xOffset = max 0 $ min (bufferWidth - w) xOffset
+      , yOffset = max 0 $ min (bufferHeight - h) yOffset
+      }
+  where
+    validOffset = and
+      [ xOffset >= 0
+      , xOffset <= bufferWidth - w
+      , yOffset >= 0
+      , yOffset <= bufferHeight - h
+      ]
 
 -- | Explicit request to run the command and update output
 data UpdateRequest = UpdateRequest
@@ -214,90 +216,109 @@ initState :: AppState
 initState = AppState
   { commandOutput = []
   , commandRunning = False
+  , bufferWidth = 0
+  , bufferHeight = 0
+  , xOffset = 0
+  , yOffset = 0
   , updateCount = 0
   }
 
-data View = TheView
-  deriving (Eq, Ord, Show)
+bufferWidget ::
+     AppState
+  -> [Text] -- ^ Lines in reverse order
+  -> Widget m
+bufferWidget AppState {..} ls =
+  Widget Greedy Greedy $ do
+    cxt <- getContext
+    let (w, h)        = (availWidth cxt, availHeight cxt)
+        offsetFromEnd = bufferHeight - yOffset - h
+        visibleLines  = reverse $ take h $ drop offsetFromEnd ls
+    render $ raw $ ansiImage w xOffset visibleLines
 
-theView :: ViewportScroll View
-theView = viewportScroll TheView
-
-drawApp :: Options -> AppState -> [Widget View]
-drawApp Options {..} AppState {..} = concat
-  [ guard debug >> pure debugWidget
-  , pure $
-    viewport TheView Both $
-    raw $ ansiImage $ Text.unlines $ reverse (runningInfo ++ commandOutput)
+drawApp :: Options -> AppState -> [Widget n]
+drawApp Options {..} s@AppState {..} = concat
+  [ guard debug          >> pure debugWidget
+  , guard commandRunning >> pure runningWidget
+  , pure $ bufferWidget s commandOutput
   ]
   where
     attr = defAttr `withForeColor` black `withBackColor` white
 
-    runningInfo = if commandRunning then [infoLine "Command is running"] else []
+    runningText = "running.."
+    runningWidget = Widget Fixed Fixed $ do
+      cxt <- getContext
+      let x = availWidth cxt - Text.length runningText
+      render $ translateBy (Location (x, 0)) $ raw $ text' attr runningText
 
     debugText = "Update count: " <> Text.pack (show updateCount)
-    debugWidget =
-      withContext $ \cxt ->
-        translateBy
-          (Location
-             (availWidth cxt - Text.length debugText, availHeight cxt - 1)) $
-        raw $ text' attr debugText
-
-withSize :: ((Int, Int) -> EventM View ()) -> EventM View ()
-withSize k = mapM_ k . fmap extentSize =<< lookupExtent TheView
+    debugWidget = Widget Fixed Fixed $ do
+      cxt <- getContext
+      let x = availWidth cxt - Text.length debugText
+          y = availHeight cxt - 1
+      render $ translateBy (Location (x, y)) $ raw $ text' attr debugText
 
 stepApp ::
      Options
   -> TVar (Maybe UpdateRequest)
   -> AppState
-  -> BrickEvent View TrackitEvent
-  -> EventM View (Next AppState)
-stepApp _ _ s (keyPressed 'q' -> True)          = halt s
-stepApp _ updReq s (VtyEvent (EvKey (KChar ' ') _)) = do
+  -> BrickEvent n TrackitEvent
+  -> EventM n (Next AppState)
+stepApp _ _ s (keyPressed 'q' -> True) = halt s
+stepApp _ updReq s (keyPressed ' ' -> True) = do
   liftIO $ atomically $ writeTVar updReq (Just UpdateRequest)
   continue s
-stepApp _ _ s (VtyEvent (EvKey kc []))
-  | kc `elem` [KDown,  KChar 'j'] = theView `vScrollBy` 1 >> continue s
-  | kc `elem` [KUp,    KChar 'k'] = theView `vScrollBy` (-1) >> continue s
-  | kc `elem` [KLeft,  KChar 'h'] = withSize (\(w, _) -> theView `hScrollBy` (negate $ div w 2)) >> continue s
-  | kc `elem` [KRight, KChar 'l'] = withSize (\(w, _) -> theView `hScrollBy` (div w 2)) >> continue s
-  | kc `elem` [KHome,  KChar 'g'] = vScrollToBeginning theView >> continue s
-  | kc `elem` [KEnd,   KChar 'G'] = vScrollToEnd theView >> continue s
-  | kc == KPageUp                 = withSize (\(_, h) -> theView `vScrollBy` (negate h)) >> continue s
-  | kc == KPageDown               = withSize (\(_, h) -> theView `vScrollBy` h) >> continue s
-  | otherwise                     = continue s
-stepApp _ _ s (VtyEvent (EvKey kc [MCtrl]))
-  | kc == KChar 'u'               = theView `vScrollBy` (-25) >> continue s
-  | kc == KChar 'd'               = theView `vScrollBy` (25) >> continue s
-  | otherwise                     = continue s
-stepApp _ _ s (AppEvent Running) =
-  continue s
-    { commandOutput = []
-    , commandRunning = True
-    }
-stepApp opts _ s (AppEvent Done) = do
-  when (followTail opts) $ vScrollToEnd theView
-  continue s
-    { commandRunning = False
-    , updateCount = updateCount s + 1
-    }
-stepApp opts _ s (AppEvent (AddLine line)) = do
-  when (followTail opts) $ vScrollToEnd theView
-  continue s
-    { commandOutput = line : commandOutput s
-    }
-stepApp opts _ s (AppEvent (UpdateBuffer buf)) = do
-  when (followTail opts) $ vScrollToEnd theView
-  continue s
-    { commandOutput = buf
-    , commandRunning = False
-    , updateCount = updateCount s + 1
-    }
-stepApp _ _ s _ = continue s
+stepApp opts _ s ev = do
+  vty <- getVtyHandle
+  size <- liftIO $ displayBounds $ outputIface vty
+  let s' = clampState size $ stepState opts ev size s
+  continue s'
 
-myApp :: Options -> TVar (Maybe UpdateRequest) -> App AppState TrackitEvent View
-myApp opts updReq =
-  App
+stepState ::
+     Options
+  -> BrickEvent n TrackitEvent
+  -> (Int, Int) -- ^ Available width, height
+  -> AppState
+  -> AppState
+stepState _ (AppEvent Running) _ s = s
+  { commandOutput = []
+  , commandRunning = True
+  , bufferWidth = 0
+  , bufferHeight = 0
+  }
+stepState _ (AppEvent Done) _ s@AppState {..} = s
+  { commandRunning = False
+  , updateCount = updateCount + 1
+  }
+stepState opts (AppEvent (AddLine line)) (_, h) s@AppState {..} = s
+  { commandOutput = line : commandOutput
+  , bufferWidth = bufferWidth `max` lengthSegs (parseANSI line)
+  , bufferHeight = bufferHeight + 1
+  , yOffset = if followTail opts then bufferHeight + 1 - h else yOffset
+  }
+stepState opts (AppEvent (UpdateBuffer buf)) (_, h) s@AppState {..} = s
+  { commandOutput = buf
+  , commandRunning = False
+  , bufferWidth = maximum $ 0 : map (lengthSegs . parseANSI) buf
+  , bufferHeight = length buf
+  , updateCount = updateCount + 1
+  , yOffset = if followTail opts then length buf - h else yOffset
+  }
+stepState _ (VtyEvent (EvKey kc [])) (w, h) s@AppState {..}
+  | kc `elem` [KDown,  KChar 'j'] = s {yOffset = yOffset + 1}
+  | kc `elem` [KUp,    KChar 'k'] = s {yOffset = yOffset - 1}
+  | kc `elem` [KLeft,  KChar 'h'] = s {xOffset = xOffset + (negate $ div w 2)}
+  | kc `elem` [KRight, KChar 'l'] = s {xOffset = xOffset + (div w 2)}
+  | kc `elem` [KHome,  KChar 'g'] = s {yOffset = 0}
+  | kc `elem` [KEnd,   KChar 'G'] = s {yOffset = bufferHeight - h}
+  | kc == KPageUp                 = s {yOffset = yOffset - h}
+  | kc == KPageDown               = s {yOffset = yOffset + h}
+stepState _ (VtyEvent (EvKey kc [MCtrl])) _ s@AppState {..}
+  | kc == KChar 'u'               = s {yOffset = yOffset - 25}
+  | kc == KChar 'd'               = s {yOffset = yOffset + 25}
+stepState _ _ _ s = s
+
+myApp :: Options -> TVar (Maybe UpdateRequest) -> App AppState TrackitEvent ()
+myApp opts updReq = App
   { appDraw = drawApp opts
   , appHandleEvent = stepApp opts updReq
   , appStartEvent = return

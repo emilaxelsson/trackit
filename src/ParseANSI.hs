@@ -73,6 +73,29 @@ data Segment = Segment
   , content :: Text
   } deriving (Eq, Show)
 
+lengthSegs :: [Segment] -> Int
+lengthSegs = sum . map (Text.length . content)
+
+takeSegs :: Int -> [Segment] -> [Segment]
+takeSegs _ [] = []
+takeSegs n _
+  | n <= 0 = []
+takeSegs n (s@Segment {..} : ss)
+  | len >= n  = [s {content = Text.take n content}]
+  | otherwise = s : takeSegs (n-len) ss
+  where
+    len = Text.length content
+
+dropSegs :: Int -> [Segment] -> [Segment]
+dropSegs _ [] = []
+dropSegs n ss
+  | n <= 0 = ss
+dropSegs n (s@Segment {..} : ss)
+  | len <= n  = dropSegs (n-len) ss
+  | otherwise = s {content = Text.drop n content} : ss
+  where
+    len = Text.length content
+
 -- | Parse a segment that has been preceded by an 'esc' sequence and does not
 -- have any other occurrences of 'esc' inside
 parseSegment :: Text -> Segment
