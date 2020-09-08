@@ -127,7 +127,8 @@ ansiImage w x = foldMap (mkLine . takeSegs w . dropSegs x . parseANSI)
   -- Note that horizontal panning of lines cannot be done outside of this
   -- function. If the lines contain ANSI codes, plain dropping and taking of
   -- characters in the 'Text' representation may lead to strange results. So
-  -- panning can only be done after ANSI parsing.
+  -- panning can only be done after ANSI parsing. (See comment on `AppState` on
+  -- why the buffer isn't parsed immediately.)
 
 helpText :: [Text]
 helpText =
@@ -181,6 +182,11 @@ data AppState = AppState
   , yOffset :: Int
   , updateCount :: Integer
   } deriving (Eq, Show)
+  -- Note: One option would be to have `commandOutput :: [[Segments]]`; i.e.
+  -- parse ANSI codes immediately when the buffer is read. This would add some
+  -- type safety and would avoid having to parse the same line multiple times.
+  -- However, tests show that this approach requires around 3 times more memory
+  -- for large buffers.
 
 -- | Ensure that the offsets are within the available area
 clampState ::
@@ -249,6 +255,9 @@ drawApp Options {..} s@AppState {..} = concat
       cxt <- getContext
       let x = availWidth cxt - Text.length runningText
       render $ translateBy (Location (x, 0)) $ raw $ text' attr runningText
+      -- I tried using `padLeft` instead, but it doesn't work because the
+      -- padding overwrites any content below it. See this issue/question:
+      -- <https://github.com/jtdaugherty/brick/issues/74>
 
     debugText = "Update count: " <> Text.pack (show updateCount)
     debugWidget = Widget Fixed Fixed $ do
