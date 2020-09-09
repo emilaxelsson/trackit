@@ -39,7 +39,9 @@ source-repository head
 executable trackit
   main-is:              Main.hs
   other-modules:        Paths_trackit
+                        Options
                         ParseANSI
+                        TUI
   build-depends:        base <5
                       , brick >= 0.47 && <0.51
                           -- 0.47 adds an argument to customMain

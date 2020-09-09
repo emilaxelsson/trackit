@@ -1,7 +1,13 @@
 -- | Parse text containing ANSI escape codes
 --
 -- The parser only handles colors and the \"bold\" property at the moment.
-module ParseANSI where
+module ParseANSI
+  ( Segment (..)
+  , lengthSegs
+  , takeSegs
+  , dropSegs
+  , parseANSI
+  ) where
 
 -- Reference: <http://ascii-table.com/ansi-escape-sequences.php>
 
