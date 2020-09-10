@@ -215,7 +215,6 @@ stepState opts (AppEvent (AddLine line)) (_, h) s@AppState {..} = s
   }
 stepState opts (AppEvent (UpdateBuffer buf)) (_, h) s@AppState {..} = s
   { commandOutput  = buf
-  , commandRunning = False
   , bufferWidth    = maximum $ 0 : map (lengthSegs . parseANSI) buf
   , bufferHeight   = len
   , _yOffset       = if followTail opts then len - h else _yOffset
