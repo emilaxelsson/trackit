@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module TUI
   ( TrackitEvent (..)
   , appMain
@@ -9,6 +11,8 @@ import Data.Char (toLower)
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import qualified Data.Text as Text
+
+import Lens.Micro.Platform ((&), (.~), (%~), makeLenses)
 
 import Brick
   ( App(..)
@@ -88,8 +92,8 @@ data AppState = AppState
   , commandRunning :: Bool
   , bufferWidth  :: Int -- ^ Width of the widest line in the buffer
   , bufferHeight :: Int -- ^ Height of buffer
-  , xOffset :: Int
-  , yOffset :: Int
+  , _xOffset :: Int
+  , _yOffset :: Int
   , updateCount :: Integer
   } deriving (Eq, Show)
   -- Note: One option would be to have `commandOutput :: [[Segments]]`; i.e.
@@ -97,6 +101,8 @@ data AppState = AppState
   -- type safety and would avoid having to parse the same line multiple times.
   -- However, tests show that this approach requires around 3 times more memory
   -- for large buffers.
+
+makeLenses ''AppState
 
 -- | Ensure that the offsets are within the available area
 clampState ::
@@ -106,15 +112,14 @@ clampState ::
 clampState (w, h) s@AppState {..}
   | validOffset = s -- avoid allocation when nothing needs to change
   | otherwise = s
-      { xOffset = max 0 $ min (bufferWidth - w) xOffset
-      , yOffset = max 0 $ min (bufferHeight - h) yOffset
-      }
+      & xOffset %~ (max 0 . min (bufferWidth - w))
+      & yOffset %~ (max 0 . min (bufferHeight - h))
   where
     validOffset = and
-      [ xOffset >= 0
-      , xOffset <= bufferWidth - w
-      , yOffset >= 0
-      , yOffset <= bufferHeight - h
+      [ _xOffset >= 0
+      , _xOffset <= bufferWidth - w
+      , _yOffset >= 0
+      , _yOffset <= bufferHeight - h
       ]
 
 data TrackitEvent
@@ -130,8 +135,8 @@ initState = AppState
   , commandRunning = False
   , bufferWidth = 0
   , bufferHeight = 0
-  , xOffset = 0
-  , yOffset = 0
+  , _xOffset = 0
+  , _yOffset = 0
   , updateCount = 0
   }
 
@@ -143,9 +148,9 @@ bufferWidget AppState {..} ls =
   Widget Greedy Greedy $ do
     cxt <- getContext
     let (w, h)        = (availWidth cxt, availHeight cxt)
-        offsetFromEnd = bufferHeight - yOffset - h
+        offsetFromEnd = bufferHeight - _yOffset - h
         visibleLines  = reverse $ take h $ drop offsetFromEnd ls
-    render $ raw $ ansiImage w xOffset visibleLines
+    render $ raw $ ansiImage w _xOffset visibleLines
 
 drawApp :: Options -> AppState -> [Widget n]
 drawApp Options {..} s@AppState {..} = concat
@@ -193,51 +198,53 @@ stepState ::
   -> AppState
   -> AppState
 stepState _ (AppEvent Running) _ s = s
-  { commandOutput = []
+  { commandOutput  = []
   , commandRunning = True
-  , bufferWidth = 0
-  , bufferHeight = 0
+  , bufferWidth    = 0
+  , bufferHeight   = 0
   }
 stepState _ (AppEvent Done) _ s@AppState {..} = s
   { commandRunning = False
-  , updateCount = updateCount + 1
+  , updateCount    = updateCount + 1
   }
 stepState opts (AppEvent (AddLine line)) (_, h) s@AppState {..} = s
-  { commandOutput = line : commandOutput
-  , bufferWidth = bufferWidth `max` lengthSegs (parseANSI line)
-  , bufferHeight = bufferHeight + 1
-  , yOffset = if followTail opts then bufferHeight + 1 - h else yOffset
+  { commandOutput  = line : commandOutput
+  , bufferWidth    = bufferWidth `max` lengthSegs (parseANSI line)
+  , bufferHeight   = bufferHeight + 1
+  , _yOffset       = if followTail opts then bufferHeight + 1 - h else _yOffset
   }
 stepState opts (AppEvent (UpdateBuffer buf)) (_, h) s@AppState {..} = s
-  { commandOutput = buf
+  { commandOutput  = buf
   , commandRunning = False
-  , bufferWidth = maximum $ 0 : map (lengthSegs . parseANSI) buf
-  , bufferHeight = length buf
-  , updateCount = updateCount + 1
-  , yOffset = if followTail opts then length buf - h else yOffset
+  , bufferWidth    = maximum $ 0 : map (lengthSegs . parseANSI) buf
+  , bufferHeight   = len
+  , _yOffset       = if followTail opts then len - h else _yOffset
+  , updateCount    = updateCount + 1
   }
-stepState _ (VtyEvent (EvKey kc [])) (w, h) s@AppState {..}
-  | kc `elem` [KDown,  KChar 'j'] = s {yOffset = yOffset + 1}
-  | kc `elem` [KUp,    KChar 'k'] = s {yOffset = yOffset - 1}
-  | kc `elem` [KLeft,  KChar 'h'] = s {xOffset = xOffset + (negate $ div w 2)}
-  | kc `elem` [KRight, KChar 'l'] = s {xOffset = xOffset + (div w 2)}
-  | kc `elem` [KHome,  KChar 'g'] = s {yOffset = 0}
-  | kc `elem` [KEnd,   KChar 'G'] = s {yOffset = bufferHeight - h}
-  | kc == KPageUp                 = s {yOffset = yOffset - h}
-  | kc == KPageDown               = s {yOffset = yOffset + h}
-stepState _ (VtyEvent (EvKey kc [MCtrl])) _ s@AppState {..}
-  | kc == KChar 'u'               = s {yOffset = yOffset - 25}
-  | kc == KChar 'd'               = s {yOffset = yOffset + 25}
+  where
+    len = length buf
+stepState _ (VtyEvent (EvKey kc [])) (w, h) s@AppState {bufferHeight}
+  | kc `elem` [KDown,  KChar 'j'] = s & yOffset %~ (+1)
+  | kc `elem` [KUp,    KChar 'k'] = s & yOffset %~ subtract 1
+  | kc `elem` [KLeft,  KChar 'h'] = s & xOffset %~ subtract (div w 2)
+  | kc `elem` [KRight, KChar 'l'] = s & xOffset %~ (+ div w 2)
+  | kc `elem` [KHome,  KChar 'g'] = s & yOffset .~ 0
+  | kc `elem` [KEnd,   KChar 'G'] = s & yOffset .~ (bufferHeight - h)
+  | kc == KPageUp                 = s & yOffset %~ subtract h
+  | kc == KPageDown               = s & yOffset %~ (+h)
+stepState _ (VtyEvent (EvKey kc [MCtrl])) _ s
+  | kc == KChar 'u'               = s & yOffset %~ subtract 25
+  | kc == KChar 'd'               = s & yOffset %~ (+25)
 stepState _ _ _ s = s
 
 myApp :: Options
   -> IO () -- ^ Update request
   -> App AppState TrackitEvent ()
 myApp opts updReq = App
-  { appDraw = drawApp opts
-  , appHandleEvent = stepApp opts updReq
-  , appStartEvent = return
-  , appAttrMap = const $ attrMap defAttr []
+  { appDraw         = drawApp opts
+  , appHandleEvent  = stepApp opts updReq
+  , appStartEvent   = return
+  , appAttrMap      = const $ attrMap defAttr []
   , appChooseCursor = neverShowCursor
   }
 

@@ -46,6 +46,7 @@ executable trackit
                       , brick >= 0.47 && <0.51
                           -- 0.47 adds an argument to customMain
                       , fsnotify <0.4
+                      , microlens-platform <0.5
                       , mtl <2.3
                       , optparse-generic >=1.2 && < 1.4
                       , process <1.7
@@ -62,6 +63,7 @@ executable trackit
                         ExplicitNamespaces
                         FlexibleInstances
                         MultiWayIf
+                        NamedFieldPuns
                         NoMonomorphismRestriction
                         OverloadedStrings
                         RecordWildCards
