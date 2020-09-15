@@ -11,6 +11,7 @@ module ParseANSI
 
 -- Reference: <http://ascii-table.com/ansi-escape-sequences.php>
 
+import Data.Foldable (fold)
 import Data.Monoid (Endo (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -69,9 +70,9 @@ codeMap =
   , (37, Endo (`withForeColor` white))
   ]
 
--- | Lookup a code in 'codeMap' and return @`Endo` `id`@ if it's not present
+-- | Lookup a code in 'codeMap' and return @mempty@ if it's not present
 lookCode :: Int -> Endo Attr
-lookCode c = maybe (Endo id) id $ lookup c codeMap
+lookCode c = fold $ lookup c codeMap
 
 -- | A text segment paired with some attribute
 data Segment = Segment
