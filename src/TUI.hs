@@ -88,13 +88,13 @@ keyPressed c (VtyEvent (EvKey (KChar c') [])) = toLower c == toLower c'
 keyPressed _ _ = False
 
 data AppState = AppState
-  { commandOutput :: [Text] -- ^ Lines in reverse
-  , commandRunning :: Bool
-  , bufferWidth  :: Int -- ^ Width of the widest line in the buffer
-  , bufferHeight :: Int -- ^ Height of buffer
-  , _xOffset :: Int
-  , _yOffset :: Int
-  , updateCount :: Integer
+  { commandOutput  :: [Text] -- ^ Lines in reverse
+  , commandRunning :: !Bool
+  , bufferWidth    :: !Int -- ^ Width of the widest line in the buffer
+  , bufferHeight   :: !Int -- ^ Height of buffer
+  , _xOffset       :: !Int
+  , _yOffset       :: !Int
+  , updateCount    :: !Integer
   } deriving (Eq, Show)
   -- Note: One option would be to have `commandOutput :: [[Segments]]`; i.e.
   -- parse ANSI codes immediately when the buffer is read. This would add some
