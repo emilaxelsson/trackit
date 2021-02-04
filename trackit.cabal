@@ -43,18 +43,18 @@ executable trackit
                         ParseANSI
                         TUI
   build-depends:        base <5
-                      , brick >= 0.47 && <0.51
+                      , brick >= 0.47 && < 0.61
                           -- 0.47 adds an argument to customMain
                       , fsnotify <0.4
                       , microlens-platform <0.5
                       , mtl <2.3
-                      , optparse-generic >=1.2 && < 1.4
+                      , optparse-generic >=1.2 && < 1.5
                       , process <1.7
                       , process-extras >=0.4 && <0.8
                       , stm <2.6
                       , text <1.3
-                      , time <1.10
-                      , vty <5.27
+                      , time < 1.12
+                      , vty < 5.33
   hs-source-dirs:       src
   default-language:     Haskell2010
   default-extensions:   BangPatterns
