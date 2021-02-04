@@ -2,7 +2,7 @@ module Main (main) where
 
 import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Concurrent.STM.TVar (TVar, newTVarIO, readTVar, writeTVar)
-import Control.Monad (fail, forever, void, when)
+import Control.Monad (forever, forM_, void, when)
 import Control.Monad.STM (atomically)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -32,17 +32,17 @@ import TUI
 type LText = LText.Text
 
 data CmdOptions = CmdOptions
-  { _watchDir      :: Maybe FilePath <?> "Directory to watch for changes in (not sub-directories). Cannot be used together with '--watch-tree'."
-  , _watchTree     :: Maybe FilePath <?> "Directory tree to watch for changes in (including sub-directories). Cannot be used together with '--watch-dir'."
-  , _command       :: Maybe String   <?> "Command to run"
-  , _followTail    :: Bool           <?> "Follow the tail of the generated output."
-  , _showRunning   :: Bool           <?> "Display a message while the command is running."
-  , _incremental   :: Bool           <?> "Allow output to be updated incrementally. Redraws the buffer for every output line, so should only be used for \
-                                         \slow outputs. Implies '--show-running'."
-  , _stabilization :: Maybe Int      <?> "Minimal time (milliseconds) between any file event and the next command update (default: 200)"
-  , _version       :: Bool           <?> "Print the version number"
+  { _watchDir      :: [FilePath]   <?> "Directory to watch for changes in (not sub-directories). Cannot be used together with '--watch-tree'."
+  , _watchTree     :: [FilePath]   <?> "Directory tree to watch for changes in (including sub-directories). Cannot be used together with '--watch-dir'."
+  , _command       :: Maybe String <?> "Command to run"
+  , _followTail    :: Bool         <?> "Follow the tail of the generated output."
+  , _showRunning   :: Bool         <?> "Display a message while the command is running."
+  , _incremental   :: Bool         <?> "Allow output to be updated incrementally. Redraws the buffer for every output line, so should only be used for \
+                                       \slow outputs. Implies '--show-running'."
+  , _stabilization :: Maybe Int    <?> "Minimal time (milliseconds) between any file event and the next command update (default: 200)"
+  , _version       :: Bool         <?> "Print the version number"
   , _help          :: Bool
-  , _debug         :: Bool           <?> "Show debug information in the lower right corner"
+  , _debug         :: Bool         <?> "Show debug information in the lower right corner"
   } deriving (Show, Generic)
 
 -- `--show-running` is not on by default because it causes a quick flickering
@@ -61,9 +61,6 @@ instance ParseRecord CmdOptions where
     parseRecordWithModifiers
       lispCaseModifiers {shortNameModifier = shortName}
 
-watchDirError =
-  "The flags '--watch-dir' and '--watch-tree' cannot be used together."
-
 getOptions :: IO Options
 getOptions = do
   (CmdOptions {..}, showHelp) <- getWithHelp "trackit"
@@ -71,20 +68,17 @@ getOptions = do
      | unHelpful _version ->
        do putStrLn $ showVersion Trackit.version
           exitSuccess
-     | otherwise ->
-       do watchDir <- case (unHelpful _watchDir, unHelpful _watchTree) of
-            (Nothing, Nothing) -> return Nothing
-            (Just d, Nothing) -> return $ Just (d, Single)
-            (Nothing, Just t) -> return $ Just (t, Recursive)
-            _ -> fail watchDirError
-          let command       = unHelpful _command
-              followTail    = unHelpful _followTail
-              showRunning   = unHelpful _showRunning
-              incremental   = unHelpful _incremental
-              stabPerMs     = fromMaybe 200 $ unHelpful _stabilization
-              stabilization = fromIntegral stabPerMs / 1000
-              debug         = unHelpful _debug
-          return $ Options {..}
+     | otherwise -> return $
+         let watchDirs     = map (, Single)    (unHelpful _watchDir)
+                          ++ map (, Recursive) (unHelpful _watchTree)
+             command       = unHelpful _command
+             followTail    = unHelpful _followTail
+             showRunning   = unHelpful _showRunning
+             incremental   = unHelpful _incremental
+             stabPerMs     = fromMaybe 200 $ unHelpful _stabilization
+             stabilization = fromIntegral stabPerMs / 1000
+             debug         = unHelpful _debug
+          in Options {..}
 
 helpText :: [Text]
 helpText =
@@ -194,14 +188,14 @@ main = do
   let mkUpdReq      = atomically $ writeTVar updReq (Just UpdateRequest)
       setFsEvent ev = atomically $ writeTVar lastFSEv $ Just ev
   tid <- forkIO $ worker opts lastFSEv updReq (updater opts updEv)
-  void $ case watchDir of
-    Nothing -> appMain opts mkUpdReq updEv
-    Just (path, depth) ->
-      withManager $ \m -> do
-        void $ case depth of
-          Single -> FSNotify.watchDir m path (const True) setFsEvent
-          Recursive -> FSNotify.watchTree m path (const True) setFsEvent
-        appMain opts mkUpdReq updEv
+
+  void $ withManager $ \m -> do
+    forM_ watchDirs $ \(path, depth) ->
+      void $ case depth of
+        Single    -> FSNotify.watchDir  m path (const True) setFsEvent
+        Recursive -> FSNotify.watchTree m path (const True) setFsEvent
+    appMain opts mkUpdReq updEv
+
   killThread tid
 
 -- Note: The "debouncing" option of fsnotify makes it so that only the *first*

@@ -9,7 +9,7 @@ data WatchDepth
   deriving (Eq, Show)
 
 data Options = Options
-  { watchDir      :: Maybe (FilePath, WatchDepth)
+  { watchDirs     :: [(FilePath, WatchDepth)]
   , command       :: Maybe String
   , followTail    :: Bool
   , showRunning   :: Bool
