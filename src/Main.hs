@@ -168,7 +168,7 @@ worker Options {..} lastFSEv updReq action =
 updater :: Options -> BChan TrackitEvent -> IO ()
 updater opts@Options {..} updEv
   | incremental = do
-      writeBChan updEv Running
+      writeBChan updEv Start
       ls <- runLazyCMD opts
       mapM_ (writeBChan updEv . AddLine) ls
       writeBChan updEv Done

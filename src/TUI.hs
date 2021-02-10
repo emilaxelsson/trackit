@@ -122,7 +122,8 @@ clampState (w, h) s@AppState {..}
       ]
 
 data TrackitEvent
-  = Running             -- ^ An incremental command started running
+  = Running             -- ^ A non-incremental command started running
+  | Start               -- ^ An incremental command started running
   | Done                -- ^ An incremental command is done
   | AddLine Text        -- ^ An incremental command produced a line
   | UpdateBuffer [Text] -- ^ A non-incremental command finished with the given output
@@ -197,6 +198,9 @@ stepState ::
   -> AppState
   -> AppState
 stepState _ (AppEvent Running) _ s = s
+  { commandRunning = True
+  }
+stepState _ (AppEvent Start) _ s = s
   { commandOutput  = []
   , commandRunning = True
   , bufferWidth    = 0
