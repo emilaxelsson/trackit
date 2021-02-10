@@ -8,7 +8,6 @@ module TUI
 import Control.Monad (guard)
 import Control.Monad.Trans (liftIO)
 import Data.Char (toLower)
-import Data.Monoid ((<>))
 import Data.Text (Text)
 import qualified Data.Text as Text
 
