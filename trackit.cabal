@@ -43,7 +43,7 @@ executable trackit
                         ParseANSI
                         TUI
   build-depends:        base <5
-                      , brick >= 0.47 && < 0.62
+                      , brick >= 0.47 && < 0.65
                           -- 0.47 adds an argument to customMain
                       , fsnotify <0.4
                       , microlens-platform <0.5
