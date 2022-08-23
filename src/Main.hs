@@ -40,9 +40,9 @@ data CmdOptions = CmdOptions
   , _incremental   :: Bool         <?> "Allow output to be updated incrementally. Redraws the buffer for every output line, so should only be used for \
                                        \slow outputs. Implies '--show-running'."
   , _stabilization :: Maybe Int    <?> "Minimal time (milliseconds) between any file event and the next command update (default: 200)"
-  , _version       :: Bool         <?> "Print the version number"
+  , _version       :: Bool         <?> "Print the version number."
   , _help          :: Bool
-  , _debug         :: Bool         <?> "Show debug information in the lower right corner"
+  , _debug         :: Bool         <?> "Show debug information in the lower right corner."
   } deriving (Show, Generic)
 
 -- `--show-running` is not on by default because it causes a quick flickering
