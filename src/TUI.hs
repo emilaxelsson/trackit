@@ -6,6 +6,7 @@ module TUI
   ) where
 
 import Control.Monad (guard)
+import Control.Monad.State (modify)
 import Control.Monad.Trans (liftIO)
 import Data.Char (toLower)
 import Data.Text (Text)
@@ -18,13 +19,11 @@ import Brick
   , BrickEvent(..)
   , EventM
   , Location (..)
-  , Next
   , Size (..)
   , Widget (..)
   , attrMap
   , availHeight
   , availWidth
-  , continue
   , customMain
   , getContext
   , getVtyHandle
@@ -180,16 +179,14 @@ drawApp Options {..} s@AppState {..} = concat
 stepApp ::
      Options
   -> IO () -- ^ Update request
-  -> AppState
   -> BrickEvent n TrackitEvent
-  -> EventM n (Next AppState)
-stepApp _ _ s (keyPressed 'q' -> True) = halt s
-stepApp _ updReq s (keyPressed ' ' -> True) = liftIO updReq >> continue s
-stepApp opts _ s ev = do
+  -> EventM n AppState ()
+stepApp _ _ (keyPressed 'q' -> True) = halt
+stepApp _ updReq (keyPressed ' ' -> True) = liftIO updReq
+stepApp opts _ ev = do
   vty <- getVtyHandle
   size <- liftIO $ displayBounds $ outputIface vty
-  let s' = clampState size $ stepState opts ev size s
-  continue s'
+  modify $ clampState size . stepState opts ev size
 
 stepState ::
      Options
@@ -246,7 +243,7 @@ myApp :: Options
 myApp opts updReq = App
   { appDraw         = drawApp opts
   , appHandleEvent  = stepApp opts updReq
-  , appStartEvent   = return
+  , appStartEvent   = return ()
   , appAttrMap      = const $ attrMap defAttr []
   , appChooseCursor = neverShowCursor
   }
