@@ -1,0 +1,9 @@
+snapshot:
+  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/22/44.yaml
+
+packages:
+- .
+
+extra-deps:
+- brick-1.10@sha256:7124c530e06596745e533853b294195e5f618e69ac884e550a4a3c1a50efe01d,17775
+- vty-5.39@sha256:ae5d64a9aaebd6a62433ee69450710a9e7700b646542a542cc75a4fad81c3f60,6271

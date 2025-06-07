@@ -42,19 +42,19 @@ executable trackit
                         Options
                         ParseANSI
                         TUI
-  build-depends:        base <5
-                      , brick >= 1.0 && == 1.1
+  build-depends:        base < 5
+                      , brick >= 1.0 && == 1.10
                           -- EventM was refactored in 1.0
-                      , fsnotify <0.4
-                      , microlens-platform <0.5
-                      , mtl <2.3
-                      , optparse-generic >=1.2 && < 1.5
-                      , process <1.7
-                      , process-extras >=0.4 && <0.8
-                      , stm <2.6
-                      , text <1.3
+                      , fsnotify < 0.5
+                      , microlens-platform < 0.5
+                      , mtl < 2.4
+                      , optparse-generic >= 1.2 && < 1.6
+                      , process < 1.7
+                      , process-extras >= 0.4 && < 0.8
+                      , stm < 2.6
+                      , text < 2.1
                       , time < 1.13
-                      , vty < 5.37
+                      , vty < 5.40
   hs-source-dirs:       src
   default-language:     Haskell2010
   default-extensions:   BangPatterns
