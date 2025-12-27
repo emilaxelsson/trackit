@@ -37,7 +37,7 @@ data CmdOptions = CmdOptions
   , _command       :: Maybe String <?> "Command to run"
   , _followTail    :: Bool         <?> "Follow the tail of the generated output."
   , _showRunning   :: Bool         <?> "Display a message while the command is running."
-  , _incremental   :: Bool         <?> "Allow output to be updated incrementally. Redraws the buffer for every output line, so should only be used for \
+  , _incremental   :: Bool         <?> "Allow output to be updated incrementally. Re-draws the buffer for every output line, so should only be used for \
                                        \slow outputs. Implies '--show-running'."
   , _stabilization :: Maybe Int    <?> "Minimal time (milliseconds) between any file event and the next command update (default: 200)"
   , _version       :: Bool         <?> "Print the version number."
