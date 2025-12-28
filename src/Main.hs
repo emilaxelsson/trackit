@@ -11,11 +11,14 @@ import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy as LText
 import GHC.Generics (Generic)
+import System.Directory (makeAbsolute)
 import System.Exit (exitSuccess)
 import System.IO (BufferMode (..))
+import System.FilePath (makeRelative, splitDirectories, isRelative)
 import qualified System.Process.ListLike as Process
 import qualified System.Process.Text as Text
 
+import qualified System.FilePath.Glob as Glob
 import System.FSNotify (eventTime, withManager)
 import qualified System.FSNotify as FSNotify
 
@@ -40,6 +43,7 @@ data CmdOptions = CmdOptions
   , _incremental   :: Bool         <?> "Allow output to be updated incrementally. Re-draws the buffer for every output line, so should only be used for \
                                        \slow outputs. Implies '--show-running'."
   , _stabilization :: Maybe Int    <?> "Minimal time (milliseconds) between any file event and the next command update (default: 200)"
+  , _exclude       :: [FilePath]   <?> "Glob patterns for files/directories to ignore (can be repeated)."
   , _version       :: Bool         <?> "Print the version number."
   , _help          :: Bool
   , _debug         :: Bool         <?> "Show debug information in the lower right corner."
@@ -52,6 +56,7 @@ shortName :: String -> Maybe Char
 shortName "_watchDir" = Just 'd'
 shortName "_watchTree" = Just 't'
 shortName "_showRunning" = Just 'r'
+shortName "_exclude" = Just 'x'
 shortName "_debug" = Just 'g'
 shortName (_:c:_) = Just c
 shortName _ = Nothing
@@ -77,6 +82,7 @@ getOptions = do
              incremental   = unHelpful _incremental
              stabPerMs     = fromMaybe 200 $ unHelpful _stabilization
              stabilization = fromIntegral stabPerMs / 1000
+             excludePatterns = unHelpful _exclude
              debug         = unHelpful _debug
           in Options {..}
 
@@ -185,15 +191,32 @@ main = do
   updReq   <- newTVarIO (Just UpdateRequest)
   -- Channel for GUI update events
   updEv    <- newBChan 1
+  watchDirsAbs <- mapM (\(path, depth) -> (, depth) <$> makeAbsolute path) watchDirs
   let mkUpdReq      = atomically $ writeTVar updReq (Just UpdateRequest)
       setFsEvent ev = atomically $ writeTVar lastFSEv $ Just ev
+      excludeGlobs  = map Glob.compile excludePatterns
+      shouldNotify base ev =
+        case excludeGlobs of
+          [] -> True
+          _  ->
+            let evPath = FSNotify.eventPath ev
+                relPath = makeRelative base evPath
+                isOutside =
+                  case splitDirectories relPath of
+                    ("..":_) -> True
+                    _        -> False
+                matchPath =
+                  if isRelative relPath && not isOutside
+                    then relPath
+                    else evPath
+             in not (any (`Glob.match` matchPath) excludeGlobs)
   tid <- forkIO $ worker opts lastFSEv updReq (updater opts updEv)
 
   void $ withManager $ \m -> do
-    forM_ watchDirs $ \(path, depth) ->
+    forM_ watchDirsAbs $ \(path, depth) ->
       void $ case depth of
-        Single    -> FSNotify.watchDir  m path (const True) setFsEvent
-        Recursive -> FSNotify.watchTree m path (const True) setFsEvent
+        Single    -> FSNotify.watchDir  m path (shouldNotify path) setFsEvent
+        Recursive -> FSNotify.watchTree m path (shouldNotify path) setFsEvent
     appMain opts mkUpdReq updEv
 
   killThread tid

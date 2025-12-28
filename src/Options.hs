@@ -15,5 +15,6 @@ data Options = Options
   , showRunning   :: Bool
   , incremental   :: Bool
   , stabilization :: NominalDiffTime
+  , excludePatterns :: [FilePath]
   , debug         :: Bool
   } deriving (Show, Generic)

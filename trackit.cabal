@@ -45,7 +45,10 @@ executable trackit
   build-depends:        base < 5
                       , brick >= 1.0 && == 1.10
                           -- EventM was refactored in 1.0
+                      , directory < 1.4
+                      , filepath < 1.6
                       , fsnotify < 0.5
+                      , Glob < 0.11
                       , microlens-platform < 0.5
                       , mtl < 2.4
                       , optparse-generic >= 1.2 && < 1.6
