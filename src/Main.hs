@@ -11,10 +11,10 @@ import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy as LText
 import GHC.Generics (Generic)
-import System.Directory (makeAbsolute)
+import System.Directory (canonicalizePath)
 import System.Exit (exitSuccess)
+import System.FilePath (isRelative, makeRelative, splitDirectories)
 import System.IO (BufferMode (..))
-import System.FilePath (makeRelative, splitDirectories, isRelative)
 import qualified System.Process.ListLike as Process
 import qualified System.Process.Text as Text
 
@@ -38,7 +38,7 @@ data CmdOptions = CmdOptions
   { _watchDir      :: [FilePath]   <?> "Directory to watch for changes in (not sub-directories). This option can be repeated. Cannot be used together with '--watch-tree'."
   , _watchTree     :: [FilePath]   <?> "Directory tree to watch for changes in (including sub-directories). This option can be repeated. Cannot be used together with '--watch-dir'."
   , _command       :: Maybe String <?> "Command to run"
-  , _exclude       :: [FilePath]   <?> "Glob patterns for files/directories to ignore. Use double quotes to avoid glob expansion in the shell (e.g. -x \"src/*\"). This option can be repeated."
+  , _exclude       :: [FilePath]   <?> "Glob pattern for files/directories to ignore. The pattern is relative to the watched directory. Use double quotes to avoid glob expansion in the shell (e.g. -x \"src/*\"). This option can be repeated."
   , _followTail    :: Bool         <?> "Follow the tail of the generated output."
   , _showRunning   :: Bool         <?> "Display a message while the command is running."
   , _incremental   :: Bool         <?> "Allow output to be updated incrementally. Re-draws the buffer for every output line, so should only be used for \
@@ -191,7 +191,7 @@ main = do
   updReq   <- newTVarIO (Just UpdateRequest)
   -- Channel for GUI update events
   updEv    <- newBChan 1
-  watchDirsAbs <- mapM (\(path, depth) -> (, depth) <$> makeAbsolute path) watchDirs
+  watchDirsAbs <- mapM (\(path, depth) -> (, depth) <$> canonicalizePath path) watchDirs
   let mkUpdReq      = atomically $ writeTVar updReq (Just UpdateRequest)
       setFsEvent ev = atomically $ writeTVar lastFSEv $ Just ev
       excludeGlobs  = map Glob.compile excludePatterns
