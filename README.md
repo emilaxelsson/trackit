@@ -15,6 +15,10 @@ Show a live revision graph of a Git repository:
     > GIT_DIR=`git rev-parse --git-dir`
     > trackit --watch-tree=$GIT_DIR --command="git log --graph --all --oneline --decorate --color"
 
+Ignore temporary files or directories using glob patterns:
+
+    > trackit --watch-tree=. --exclude '**/*.tmp' --command="ls --color"
+
 ## Installation
 
 `trackit` can be installed from [Hackage](https://hackage.haskell.org/package/trackit) using Cabal:
