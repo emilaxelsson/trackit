@@ -35,15 +35,15 @@ import TUI
 type LText = LText.Text
 
 data CmdOptions = CmdOptions
-  { _watchDir      :: [FilePath]   <?> "Directory to watch for changes in (not sub-directories). Cannot be used together with '--watch-tree'."
-  , _watchTree     :: [FilePath]   <?> "Directory tree to watch for changes in (including sub-directories). Cannot be used together with '--watch-dir'."
+  { _watchDir      :: [FilePath]   <?> "Directory to watch for changes in (not sub-directories). This option can be repeated. Cannot be used together with '--watch-tree'."
+  , _watchTree     :: [FilePath]   <?> "Directory tree to watch for changes in (including sub-directories). This option can be repeated. Cannot be used together with '--watch-dir'."
   , _command       :: Maybe String <?> "Command to run"
+  , _exclude       :: [FilePath]   <?> "Glob patterns for files/directories to ignore. Use double quotes to avoid glob expansion in the shell (e.g. -x \"src/*\"). This option can be repeated."
   , _followTail    :: Bool         <?> "Follow the tail of the generated output."
   , _showRunning   :: Bool         <?> "Display a message while the command is running."
   , _incremental   :: Bool         <?> "Allow output to be updated incrementally. Re-draws the buffer for every output line, so should only be used for \
                                        \slow outputs. Implies '--show-running'."
   , _stabilization :: Maybe Int    <?> "Minimal time (milliseconds) between any file event and the next command update (default: 200)"
-  , _exclude       :: [FilePath]   <?> "Glob patterns for files/directories to ignore (can be repeated)."
   , _version       :: Bool         <?> "Print the version number."
   , _help          :: Bool
   , _debug         :: Bool         <?> "Show debug information in the lower right corner."
