@@ -24,7 +24,7 @@ import Brick
   , attrMap
   , availHeight
   , availWidth
-  , customMain
+  , customMainWithDefaultVty
   , getContext
   , getVtyHandle
   , halt
@@ -41,10 +41,8 @@ import Graphics.Vty
   , (<|>)
   , black
   , defAttr
-  , defaultConfig
   , displayBounds
   , imageWidth
-  , mkVty
   , outputIface
   , text'
   , white
@@ -254,10 +252,8 @@ appMain ::
   -> BChan TrackitEvent
   -> IO AppState
 appMain opts updReq updEv = do
-  vty <- mkVty defaultConfig
-  customMain
-    vty
-    (mkVty defaultConfig)
+  (state, _vty) <- customMainWithDefaultVty
     (Just updEv)
     (myApp opts updReq)
     initState
+  pure state

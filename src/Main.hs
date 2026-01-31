@@ -1,3 +1,12 @@
+-- TODO QuickCheck:
+--
+-- * `takeSegs`, etc.
+-- * `stepState`
+
+-- TODO changelog
+
+-- TODO check dependency versions
+
 module Main (main) where
 
 import Control.Concurrent (forkIO, killThread, threadDelay)
