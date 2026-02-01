@@ -21,9 +21,9 @@ Ignore temporary files or directories using glob patterns:
 
 ## Installation
 
-`trackit` can be installed from [Hackage](https://hackage.haskell.org/package/trackit) using Cabal:
+`trackit` can be installed from [Hackage](https://hackage.haskell.org/package/trackit) using Stack:
 
-    > cabal new-install trackit
+    > stack install trackit
 
 ## Usage
 
